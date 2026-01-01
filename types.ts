@@ -34,6 +34,12 @@ export interface FooterLink {
   url: string;
 }
 
+export interface FooterSupportItem {
+  id: string;
+  label: string;
+  value: string;
+}
+
 export interface RiskThreshold {
   id: string;
   level: string;
@@ -46,6 +52,7 @@ export interface SiteConfig {
   heroBadge: string;
   heroTitle: string;
   heroDescription: string;
+  heroImageUrl?: string;
   primaryColor: string;
   featuresTitle: string;
   featuresSubtitle: string;
@@ -55,6 +62,9 @@ export interface SiteConfig {
   features: LandingFeature[];
   aboutItems: AboutItem[];
   footerLinks: FooterLink[];
+  footerSupportItems: FooterSupportItem[];
+  footerCopyright: string;
+  footerIcp: string;
   inputPageTitle: string;
   inputPageDesc: string;
   summaryPageTitle: string;
@@ -110,7 +120,7 @@ export interface Case {
   riskLevel: string;
   suggestion: string;
   creatorId: string;
-  creatorName: string; // Added to help track who entered what
+  creatorName: string; 
 }
 
 export interface AppState {

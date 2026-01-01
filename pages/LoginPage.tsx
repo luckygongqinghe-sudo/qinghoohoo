@@ -12,7 +12,7 @@ const LoginPage: React.FC = () => {
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
 
-  const { users, currentUser, setCurrentUser, addUser } = useStore();
+  const { users, currentUser, setCurrentUser, addUser, siteConfig } = useStore();
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -76,7 +76,7 @@ const LoginPage: React.FC = () => {
                <div className="bg-emerald-600 p-2 rounded-xl group-hover:scale-110 apple-transition shadow-lg shadow-emerald-500/20">
                  <Activity size={24} />
                </div>
-               <span className="text-xl font-bold tracking-tight">TB-Screen</span>
+               <span className="text-xl font-bold tracking-tight">TB-Scan</span>
             </Link>
             <div className="space-y-6">
               <h2 className="text-4xl font-extrabold leading-[1.1] tracking-tight">临床评估，<br />全速进行。</h2>
@@ -144,7 +144,7 @@ const LoginPage: React.FC = () => {
 
           <div className="mt-12 text-center">
             <p className="text-[11px] text-slate-400 font-bold">
-              © TB-Screen 数字化防治中心 · 自动激活已启用
+              {siteConfig.footerCopyright}
             </p>
           </div>
         </div>

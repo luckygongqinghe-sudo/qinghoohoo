@@ -1,4 +1,3 @@
-
 import React, { useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useStore } from '../store.tsx';
@@ -46,7 +45,7 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
             <Activity className="w-6 h-6 text-white" />
           </div>
           <div>
-            <span className="text-xl font-black text-slate-900 dark:text-white block leading-none">TB-Screen</span>
+            <span className="text-xl font-black text-slate-900 dark:text-white block leading-none">TB-Scan</span>
             <span className="text-[10px] text-slate-400 font-bold uppercase tracking-[0.2em] mt-2 block">System Hub</span>
           </div>
         </Link>
