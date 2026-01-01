@@ -85,7 +85,7 @@ export interface User {
   password?: string;
   role: UserRole;
   active: boolean;
-  approved: boolean;
+  approved: boolean; // 新增：是否已通过审批
 }
 
 export interface ScoringConfig {

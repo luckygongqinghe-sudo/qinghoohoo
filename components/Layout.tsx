@@ -1,3 +1,4 @@
+
 import React, { useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useStore } from '../store.tsx';
@@ -12,11 +13,13 @@ import {
   Menu,
   X,
   Sun,
-  Moon
+  Moon,
+  CloudLightning,
+  RefreshCw
 } from 'lucide-react';
 
 const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const { currentUser, logout, theme, setTheme } = useStore();
+  const { currentUser, logout, theme, setTheme, isLoading } = useStore();
   const location = useLocation();
   const navigate = useNavigate();
   const [isMobileOpen, setIsMobileOpen] = useState(false);
@@ -28,7 +31,6 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
     navigate('/');
   };
 
-  // 核心逻辑：管理中心入口仅 qinghoohoo 可见
   const navItems = [
     { path: '/dashboard/cases', label: '评估录入', icon: ClipboardCheck, show: true },
     { path: '/dashboard/summary', label: '数据分析', icon: Table, show: true },
@@ -46,7 +48,7 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
           </div>
           <div>
             <span className="text-xl font-black text-slate-900 dark:text-white block leading-none">TB-Scan</span>
-            <span className="text-[10px] text-slate-400 font-bold uppercase tracking-[0.2em] mt-2 block">System Hub</span>
+            <span className="text-[10px] text-slate-400 font-bold uppercase tracking-[0.2em] mt-2 block">Cloud Sync System</span>
           </div>
         </Link>
       </div>
@@ -121,26 +123,36 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
                <Menu size={24} />
              </button>
              <div>
-               <div className="hidden sm:block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">
-                 Cloud Sync <span className="mx-2 opacity-30">/</span> {currentNavItem?.label}
+               <div className="hidden sm:flex items-center gap-2 text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">
+                 Cloud Service <RefreshCw size={10} className={isLoading ? 'animate-spin text-emerald-500' : 'text-slate-300'} /> <span className="mx-1 opacity-30">/</span> {currentNavItem?.label}
                </div>
                <h2 className="text-lg lg:text-xl font-extrabold text-slate-900 dark:text-white">{currentNavItem?.label}</h2>
              </div>
            </div>
            <div className="flex items-center gap-3 lg:gap-6">
+             <div className="hidden md:flex items-center gap-2 px-4 py-2 bg-emerald-50 dark:bg-emerald-900/20 rounded-full border border-emerald-100 dark:border-emerald-800 text-[10px] font-black text-emerald-600 uppercase tracking-widest">
+               <CloudLightning size={12} /> Live Sync
+             </div>
              <button 
                onClick={() => setTheme(theme === 'light' ? 'dark' : 'light')}
                className="p-3 bg-slate-100 dark:bg-slate-800 rounded-2xl text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white apple-transition"
              >
                {theme === 'light' ? <Moon size={20} /> : <Sun size={20} />}
              </button>
-             <div className="w-10 h-10 bg-slate-50 dark:bg-slate-800 rounded-full flex items-center justify-center">
-                <Activity size={18} className="text-emerald-600" />
-             </div>
            </div>
         </header>
-        <div className="p-6 lg:p-12 max-w-7xl mx-auto animate-in fade-in slide-in-from-bottom-4 duration-700">
-          {children}
+        <div className="p-6 lg:p-12 max-w-7xl mx-auto">
+          {isLoading ? (
+            <div className="flex flex-col items-center justify-center py-32 space-y-8 animate-pulse">
+               <div className="w-16 h-16 bg-slate-200 dark:bg-slate-800 rounded-2xl" />
+               <div className="h-4 w-48 bg-slate-200 dark:bg-slate-800 rounded-full" />
+               <p className="text-slate-400 font-bold text-sm">正在从云端加密同步临床数据...</p>
+            </div>
+          ) : (
+            <div className="animate-in fade-in slide-in-from-bottom-4 duration-700">
+              {children}
+            </div>
+          )}
         </div>
       </main>
     </div>
