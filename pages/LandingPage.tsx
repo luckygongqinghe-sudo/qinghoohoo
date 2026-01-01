@@ -9,9 +9,7 @@ import {
   ArrowRight,
   CheckCircle2,
   Lock,
-  Cpu,
   BrainCircuit,
-  Dna,
   FlaskConical
 } from 'lucide-react';
 import Footer from '../components/Footer';
@@ -46,11 +44,7 @@ const LandingPage: React.FC = () => {
             </div>
             <span className="text-xl font-bold text-slate-900 tracking-tight">TB-Scan</span>
           </div>
-          <div className="hidden md:flex items-center gap-10">
-            <div className="flex items-center gap-8 text-[13px] font-semibold text-slate-500 uppercase tracking-wider">
-              <button onClick={() => scrollToSection('features')} className="hover:text-emerald-600 apple-transition">核心技术</button>
-              <button onClick={() => scrollToSection('about')} className="hover:text-emerald-600 apple-transition">安全性</button>
-            </div>
+          <div className="flex items-center gap-6">
             <Link to="/login" className="px-6 py-2.5 bg-black text-white text-[13px] font-bold rounded-full hover:bg-slate-800 apple-transition shadow-xl">
               工作台登录
             </Link>
@@ -141,7 +135,7 @@ const LandingPage: React.FC = () => {
           </div>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-10">
             {siteConfig.features.map((f) => (
-              <div key={f.id} className="group p-10 bg-slate-50/50 rounded-[3rem] border border-transparent hover:border-slate-100 hover:bg-white apple-transition hover:-translate-y-2 hover:shadow-2xl hover:shadow-slate-200/50">
+              <div className="group p-10 bg-slate-50/50 rounded-[3rem] border border-transparent hover:border-slate-100 hover:bg-white apple-transition hover:-translate-y-2 hover:shadow-2xl hover:shadow-slate-200/50">
                 <div className={`w-14 h-14 rounded-[22px] flex items-center justify-center mb-8 shadow-xl transition-all duration-500 group-hover:scale-110 bg-emerald-600 text-white shadow-emerald-600/20`}>
                   {renderIcon(f.iconName, 28)}
                 </div>
