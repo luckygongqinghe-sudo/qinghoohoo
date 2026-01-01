@@ -6,7 +6,7 @@ import { DEFAULT_CONFIG, DEFAULT_SITE_CONFIG } from './constants.ts';
 interface StoreContextType extends AppState {
   setCurrentUser: (user: User | null) => void;
   setTheme: (theme: ThemeMode) => void;
-  addUser: (username: string, role: UserRole, password?: string, approved?: boolean) => void;
+  addUser: (username: string, role: UserRole, password?: string, approved?: boolean) => User;
   toggleUserStatus: (id: string) => void;
   updateUserRole: (id: string, role: UserRole) => void;
   updateUserPassword: (id: string, newPassword: string) => void;
@@ -15,6 +15,7 @@ interface StoreContextType extends AppState {
   addCase: (newCase: Case) => void;
   updateCase: (id: string, updatedCase: Case) => void;
   deleteCases: (ids: string[]) => void;
+  mergeCases: (incoming: Case[]) => number;
   updateConfig: (newConfig: ScoringConfig) => void;
   updateSiteConfig: (newConfig: SiteConfig) => void;
   logout: () => void;
@@ -62,6 +63,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   useEffect(() => { localStorage.setItem('tb_cases', JSON.stringify(cases)); }, [cases]);
   useEffect(() => { localStorage.setItem('tb_config', JSON.stringify(config)); }, [config]);
   useEffect(() => { localStorage.setItem('tb_site_config', JSON.stringify(siteConfig)); }, [siteConfig]);
+  
   useEffect(() => {
     localStorage.setItem('tb_theme', theme);
     if (theme === 'dark') {
@@ -73,9 +75,17 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
   const setTheme = (mode: ThemeMode) => setThemeState(mode);
 
-  const addUser = (username: string, role: UserRole, password?: string, approved: boolean = false) => {
-    const newUser: User = { id: Date.now().toString(), username, password: password || '123456', role, active: true, approved };
+  const addUser = (username: string, role: UserRole, password?: string, approved: boolean = true) => {
+    const newUser: User = { 
+      id: Date.now().toString(), 
+      username, 
+      password: password || '123456', 
+      role, 
+      active: true, 
+      approved: true // 强制注册即激活
+    };
     setUsers(prev => [...prev, newUser]);
+    return newUser;
   };
 
   const toggleUserStatus = (id: string) => setUsers(prev => prev.map(u => u.id === id ? { ...u, active: !u.active } : u));
@@ -88,13 +98,17 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const deleteUser = (id: string) => setUsers(prev => prev.filter(u => u.id !== id));
 
   const addCase = (newCase: Case) => setCases(prev => [newCase, ...prev]);
-  
-  const updateCase = (id: string, updatedCase: Case) => {
-    setCases(prev => prev.map(c => c.id === id ? updatedCase : c));
-  };
+  const updateCase = (id: string, updatedCase: Case) => setCases(prev => prev.map(c => c.id === id ? updatedCase : c));
+  const deleteCases = (ids: string[]) => setCases(prev => prev.filter(c => !ids.includes(c.id)));
 
-  const deleteCases = (ids: string[]) => {
-    setCases(prev => prev.filter(c => !ids.includes(c.id)));
+  const mergeCases = (incoming: Case[]) => {
+    let addedCount = 0;
+    setCases(prev => {
+      const newOnes = incoming.filter(ic => !prev.some(p => p.id === ic.id));
+      addedCount = newOnes.length;
+      return [...newOnes, ...prev];
+    });
+    return addedCount;
   };
 
   const updateConfig = (newConfig: ScoringConfig) => setConfig(newConfig);
@@ -105,7 +119,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     <StoreContext.Provider value={{
       currentUser, users, cases, config, siteConfig, theme,
       setCurrentUser, setTheme, addUser, toggleUserStatus, updateUserRole, updateUserPassword, approveUser, deleteUser, 
-      addCase, updateCase, deleteCases, updateConfig, updateSiteConfig, logout
+      addCase, updateCase, deleteCases, mergeCases, updateConfig, updateSiteConfig, logout
     }}>
       {children}
     </StoreContext.Provider>

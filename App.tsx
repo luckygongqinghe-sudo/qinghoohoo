@@ -10,10 +10,15 @@ import CaseSummaryPage from './pages/CaseSummaryPage';
 import AdminSettingsPage from './pages/AdminSettingsPage';
 import { UserRole } from './types';
 
-const PrivateRoute: React.FC<{ children: React.ReactNode; roles?: UserRole[] }> = ({ children, roles }) => {
+const PrivateRoute: React.FC<{ children: React.ReactNode; isAdminOnly?: boolean }> = ({ children, isAdminOnly }) => {
   const { currentUser } = useStore();
   if (!currentUser) return <Navigate to="/login" />;
-  if (roles && !roles.includes(currentUser.role)) return <Navigate to="/dashboard/cases" />;
+  
+  // 硬编码校验：仅 qinghoohoo 可以进入管理中心
+  if (isAdminOnly && currentUser.username !== 'qinghoohoo') {
+    return <Navigate to="/dashboard/summary" />;
+  }
+  
   return <>{children}</>;
 };
 
@@ -41,16 +46,14 @@ const AppRoutes: React.FC = () => {
       <Route 
         path="/dashboard/admin" 
         element={
-          <PrivateRoute roles={[UserRole.ADMIN]}>
+          <PrivateRoute isAdminOnly={true}>
             <Layout><AdminSettingsPage /></Layout>
           </PrivateRoute>
         } 
       />
-      {/* 重定向旧路径 */}
       <Route path="/cases" element={<Navigate to="/dashboard/cases" />} />
       <Route path="/summary" element={<Navigate to="/dashboard/summary" />} />
       <Route path="/admin" element={<Navigate to="/dashboard/admin" />} />
-      
       <Route path="*" element={<Navigate to="/" />} />
     </Routes>
   );

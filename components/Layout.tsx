@@ -29,10 +29,11 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
     navigate('/');
   };
 
+  // 核心逻辑：管理中心入口仅 qinghoohoo 可见
   const navItems = [
-    { path: '/dashboard/cases', label: '评估录入', icon: ClipboardCheck, roles: [UserRole.USER, UserRole.ADMIN] },
-    { path: '/dashboard/summary', label: '数据中心', icon: Table, roles: [UserRole.USER, UserRole.ADMIN] },
-    { path: '/dashboard/admin', label: '管理中心', icon: Settings, roles: [UserRole.ADMIN] },
+    { path: '/dashboard/cases', label: '评估录入', icon: ClipboardCheck, show: true },
+    { path: '/dashboard/summary', label: '数据分析', icon: Table, show: true },
+    { path: '/dashboard/admin', label: '管理中心', icon: Settings, show: currentUser.username === 'qinghoohoo' },
   ];
 
   const currentNavItem = navItems.find(item => item.path === location.pathname);
@@ -52,8 +53,8 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
       </div>
 
       <nav className="flex-1 px-6 space-y-1">
-        <div className="text-[11px] text-slate-400 font-black uppercase tracking-widest px-4 mb-4 mt-4">主要功能</div>
-        {navItems.filter(item => item.roles.includes(currentUser.role)).map((item) => (
+        <div className="text-[11px] text-slate-400 font-black uppercase tracking-widest px-4 mb-4 mt-4">业务工作台</div>
+        {navItems.filter(item => item.show).map((item) => (
           <Link
             key={item.path}
             to={item.path}
@@ -80,7 +81,7 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
             <div className="overflow-hidden">
               <p className="text-[13px] font-black text-slate-900 dark:text-white truncate">{currentUser.username}</p>
               <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider mt-0.5">
-                {currentUser.role === UserRole.ADMIN ? 'Administrator' : 'Operator'}
+                {currentUser.username === 'qinghoohoo' ? 'Super Admin' : 'Operator'}
               </p>
             </div>
           </div>
@@ -122,7 +123,7 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
              </button>
              <div>
                <div className="hidden sm:block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">
-                 System Hub <span className="mx-2 opacity-30">/</span> {currentNavItem?.label}
+                 Cloud Sync <span className="mx-2 opacity-30">/</span> {currentNavItem?.label}
                </div>
                <h2 className="text-lg lg:text-xl font-extrabold text-slate-900 dark:text-white">{currentNavItem?.label}</h2>
              </div>
