@@ -4,6 +4,8 @@ export enum UserRole {
   USER = 'USER'
 }
 
+export type ThemeMode = 'light' | 'dark';
+
 export enum RiskLevel {
   NONE = '无风险',
   LOW = '低风险',
@@ -17,7 +19,7 @@ export interface LandingFeature {
   id: string;
   title: string;
   description: string;
-  iconName: string; // 存储图标组件名
+  iconName: string; 
 }
 
 export interface AboutItem {
@@ -32,9 +34,16 @@ export interface FooterLink {
   url: string;
 }
 
+export interface RiskThreshold {
+  id: string;
+  level: string;
+  min: number;
+  max: number;
+  suggestion: string;
+}
+
 export interface SiteConfig {
-  // Landing Page Text
-  heroBadge: string; // 新增：首页闪烁标签文案
+  heroBadge: string;
   heroTitle: string;
   heroDescription: string;
   primaryColor: string;
@@ -43,25 +52,21 @@ export interface SiteConfig {
   aboutTitle: string;
   aboutSubtitle: string;
   ctaText: string;
-  
-  // Dynamic Lists
   features: LandingFeature[];
   aboutItems: AboutItem[];
   footerLinks: FooterLink[];
-  
-  // Dashboard Pages
   inputPageTitle: string;
   inputPageDesc: string;
   summaryPageTitle: string;
   summaryPageDesc: string;
   adminPageTitle: string;
   adminPageDesc: string;
-
-  // Footer
   footerBrandName: string;
   footerDescription: string;
   footerContactEmail: string;
   footerContactPhone: string;
+  footerSupportLabel: string;
+  footerEmergencyLabel: string;
 }
 
 export interface User {
@@ -81,6 +86,7 @@ export interface ScoringConfig {
   smear: Record<string, number>;
   culture: Record<string, number>;
   symptoms: Record<string, number>;
+  thresholds: RiskThreshold[];
 }
 
 export interface Case {
@@ -101,9 +107,10 @@ export interface Case {
   smearResult: string;
   cultureResult: string;
   totalScore: number;
-  riskLevel: RiskLevel;
+  riskLevel: string;
   suggestion: string;
   creatorId: string;
+  creatorName: string; // Added to help track who entered what
 }
 
 export interface AppState {
@@ -112,4 +119,5 @@ export interface AppState {
   cases: Case[];
   config: ScoringConfig;
   siteConfig: SiteConfig;
+  theme: ThemeMode;
 }

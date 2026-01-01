@@ -50,16 +50,16 @@ const LandingPage: React.FC = () => {
         </div>
       </nav>
 
-      {/* Hero Section */}
-      <section className="mesh-gradient pt-48 pb-32 px-8">
+      {/* Hero Section - Reduced padding from pt-48 pb-32 to pt-32 pb-20 */}
+      <section className="mesh-gradient pt-32 pb-20 px-8">
         <div className="max-w-7xl mx-auto flex flex-col items-center text-center">
-          <div className="inline-flex items-center gap-2 px-4 py-1.5 bg-white/50 backdrop-blur-md border border-black/5 rounded-full text-[12px] font-bold text-emerald-700 mb-8 animate-in fade-in slide-in-from-bottom-4 duration-1000">
+          <div className="inline-flex items-center gap-2 px-4 py-1.5 bg-white/50 backdrop-blur-md border border-black/5 rounded-full text-[12px] font-bold text-emerald-700 mb-6 animate-in fade-in slide-in-from-bottom-4 duration-1000">
             <Sparkles size={14} className="animate-pulse" /> {siteConfig.heroBadge}
           </div>
-          <h1 className="text-6xl md:text-8xl font-extrabold text-slate-900 leading-[1.05] tracking-tight mb-8 whitespace-pre-line animate-in fade-in slide-in-from-bottom-6 duration-1000 delay-100">
+          <h1 className="text-5xl md:text-7xl font-extrabold text-slate-900 leading-[1.05] tracking-tight mb-6 whitespace-pre-line animate-in fade-in slide-in-from-bottom-6 duration-1000 delay-100">
             {siteConfig.heroTitle}
           </h1>
-          <p className="text-xl text-slate-500 mb-12 leading-relaxed max-w-2xl animate-in fade-in slide-in-from-bottom-8 duration-1000 delay-200">
+          <p className="text-lg md:text-xl text-slate-500 mb-10 leading-relaxed max-w-2xl animate-in fade-in slide-in-from-bottom-8 duration-1000 delay-200">
             {siteConfig.heroDescription}
           </p>
           <div className="flex flex-col sm:flex-row gap-5 animate-in fade-in slide-in-from-bottom-10 duration-1000 delay-300">
@@ -73,23 +73,23 @@ const LandingPage: React.FC = () => {
         </div>
       </section>
 
-      {/* Dynamic Features Grid */}
-      <section id="features" className="py-40 bg-white">
+      {/* Dynamic Features Grid - Reduced padding from py-40 to py-24 */}
+      <section id="features" className="py-24 bg-white">
         <div className="max-w-7xl mx-auto px-8">
-          <div className="mb-24">
-            <h2 className="text-4xl md:text-5xl font-extrabold text-slate-900 mb-6 tracking-tight">{siteConfig.featuresTitle}</h2>
-            <p className="text-xl text-slate-400 max-w-2xl leading-relaxed">
+          <div className="mb-16">
+            <h2 className="text-4xl md:text-5xl font-extrabold text-slate-900 mb-4 tracking-tight">{siteConfig.featuresTitle}</h2>
+            <p className="text-lg text-slate-400 max-w-2xl leading-relaxed">
               {siteConfig.featuresSubtitle}
             </p>
           </div>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-12">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-10">
             {siteConfig.features.map((f) => (
               <div key={f.id} className="group flex flex-col items-start apple-transition hover:-translate-y-2">
-                <div className={`w-16 h-16 rounded-[22px] flex items-center justify-center mb-10 shadow-2xl transition-all duration-500 group-hover:scale-110 bg-emerald-50 text-emerald-600`}>
-                  {renderIcon(f.iconName, 32)}
+                <div className={`w-14 h-14 rounded-[20px] flex items-center justify-center mb-6 shadow-xl transition-all duration-500 group-hover:scale-110 bg-emerald-50 text-emerald-600`}>
+                  {renderIcon(f.iconName, 28)}
                 </div>
-                <h3 className="text-2xl font-bold text-slate-900 mb-6">{f.title}</h3>
-                <p className="text-slate-500 leading-relaxed text-lg">
+                <h3 className="text-xl font-bold text-slate-900 mb-4">{f.title}</h3>
+                <p className="text-slate-500 leading-relaxed text-base">
                   {f.description}
                 </p>
               </div>
@@ -98,37 +98,37 @@ const LandingPage: React.FC = () => {
         </div>
       </section>
 
-      {/* About Section */}
-      <section id="about" className="py-40 bg-slate-50">
+      {/* About Section - Reduced padding from py-40 to py-24 */}
+      <section id="about" className="py-24 bg-slate-50">
         <div className="max-w-7xl mx-auto px-8">
-          <div className="bg-white rounded-[4rem] p-12 md:p-24 premium-shadow flex flex-col lg:flex-row gap-20 items-center border border-black/5">
+          <div className="bg-white rounded-[3.5rem] p-10 md:p-20 premium-shadow flex flex-col lg:flex-row gap-16 items-center border border-black/5">
             <div className="lg:w-1/2">
-              <span className="text-emerald-600 font-bold tracking-widest text-[12px] uppercase block mb-6">Security First</span>
-              <h2 className="text-4xl md:text-6xl font-extrabold text-slate-900 mb-10 leading-tight">{siteConfig.aboutTitle}</h2>
-              <div className="space-y-10">
+              <span className="text-emerald-600 font-bold tracking-widest text-[11px] uppercase block mb-4">Security First</span>
+              <h2 className="text-3xl md:text-5xl font-extrabold text-slate-900 mb-8 leading-tight">{siteConfig.aboutTitle}</h2>
+              <div className="space-y-8">
                 {siteConfig.aboutItems.map((item) => (
-                  <div key={item.id} className="flex gap-6">
-                    <CheckCircle2 className="text-emerald-500 shrink-0 mt-1" size={24} />
+                  <div key={item.id} className="flex gap-5">
+                    <CheckCircle2 className="text-emerald-500 shrink-0 mt-1" size={20} />
                     <div>
-                      <h4 className="text-xl font-bold text-slate-900 mb-2">{item.title}</h4>
-                      <p className="text-slate-500 text-lg leading-relaxed">{item.description}</p>
+                      <h4 className="text-lg font-bold text-slate-900 mb-1">{item.title}</h4>
+                      <p className="text-slate-500 text-base leading-relaxed">{item.description}</p>
                     </div>
                   </div>
                 ))}
               </div>
             </div>
             <div className="lg:w-1/2 relative">
-               <div className="w-full aspect-square bg-slate-900 rounded-[3.5rem] p-10 flex flex-col justify-between text-white overflow-hidden group">
+               <div className="w-full aspect-square bg-slate-900 rounded-[3rem] p-8 flex flex-col justify-between text-white overflow-hidden group">
                   <div className="absolute inset-0 bg-gradient-to-br from-emerald-500/20 to-transparent opacity-0 group-hover:opacity-100 apple-transition"></div>
                   <div className="flex justify-between items-start relative z-10">
-                     <div className="bg-white/10 backdrop-blur-md p-4 rounded-3xl border border-white/10">
-                        <Lock className="text-emerald-400" size={32} />
+                     <div className="bg-white/10 backdrop-blur-md p-3 rounded-2xl border border-white/10">
+                        <Lock className="text-emerald-400" size={28} />
                      </div>
                      <span className="text-[10px] font-black uppercase tracking-widest bg-emerald-500/20 text-emerald-400 px-3 py-1 rounded-full">Encrypted</span>
                   </div>
                   <div className="relative z-10">
-                     <div className="text-5xl font-black mb-4">99.99%</div>
-                     <p className="text-slate-400 text-sm leading-relaxed max-w-xs font-medium">
+                     <div className="text-5xl font-black mb-2">99.99%</div>
+                     <p className="text-slate-400 text-xs leading-relaxed max-w-xs font-medium">
                         {siteConfig.aboutSubtitle}
                      </p>
                   </div>

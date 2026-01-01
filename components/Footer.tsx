@@ -31,8 +31,8 @@ const Footer: React.FC = () => {
         </div>
         <div>
           <h4 className="text-white font-semibold mb-4">联系我们</h4>
-          <p className="text-sm">系统支持：{siteConfig.footerContactEmail}</p>
-          <p className="text-sm mt-2">紧急求助：{siteConfig.footerContactPhone}</p>
+          <p className="text-sm">{siteConfig.footerSupportLabel}：{siteConfig.footerContactEmail}</p>
+          <p className="text-sm mt-2">{siteConfig.footerEmergencyLabel}：{siteConfig.footerContactPhone}</p>
         </div>
       </div>
       <div className="max-w-7xl mx-auto px-6 mt-12 pt-8 border-t border-slate-800 text-center text-xs">

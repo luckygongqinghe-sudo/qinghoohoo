@@ -1,5 +1,5 @@
 
-import { ScoringConfig, SiteConfig, RiskLevel } from './types';
+import { ScoringConfig, SiteConfig } from './types';
 
 export const DEFAULT_CONFIG: ScoringConfig = {
   history: {
@@ -42,7 +42,15 @@ export const DEFAULT_CONFIG: ScoringConfig = {
     '气短': 10,
     '胸痛': 8,
     '疲劳': 5
-  }
+  },
+  thresholds: [
+    { id: 't1', level: '无风险', min: 0, max: 10, suggestion: '维持健康生活习惯，定期进行常规体检。' },
+    { id: 't2', level: '低风险', min: 11, max: 20, suggestion: '建议临床观察，若出现长期咳嗽等典型症状请及时随访。' },
+    { id: 't3', level: '中风险', min: 21, max: 40, suggestion: '建议启动PPD/QFT筛查，并进行胸部低剂量螺旋CT扫描。' },
+    { id: 't4', level: '高风险', min: 41, max: 60, suggestion: '高度疑似感染，请立即进行病原学检测，包括痰涂片及分子诊断。' },
+    { id: 't5', level: '极高危风险', min: 61, max: 99, suggestion: '极高危！需立即转诊至结核病定点专科医院进行规范化排查。' },
+    { id: 't6', level: '确诊结核病', min: 100, max: 999, suggestion: '临床诊断确立，请立即依据指南启动标准化化疗方案。' }
+  ]
 };
 
 export const DEFAULT_SITE_CONFIG: SiteConfig = {
@@ -80,7 +88,7 @@ export const DEFAULT_SITE_CONFIG: SiteConfig = {
   aboutItems: [
     { id: 'a1', title: "端到端加密", description: "采用 AES-256 银行级加密，确保数据在传输与存储过程中的绝对私密。" },
     { id: 'a2', title: "权限细分模型", description: "管理员与操作员角色严格隔离，每一笔数据访问均有可追溯的审计日志。" },
-    { id: 'a3', title: "实时合规监测", description: "自动化合规扫描，确保系统始终符合最新的公共卫生信息安全标准。" }
+    { id: 'a3', title: "实时合规监测", description: "采用自动化合规扫描，确保系统始终符合最新的公共卫生信息安全标准。" }
   ],
 
   footerLinks: [
@@ -92,7 +100,6 @@ export const DEFAULT_SITE_CONFIG: SiteConfig = {
   inputPageTitle: "临床数据录入",
   inputPageDesc: "整合患者体征与实验室数据，实时风险分级。",
   summaryPageTitle: "数据透视中心",
-  // Fix duplicate property 'summaryPageDesc'
   summaryPageDesc: "跨维度病例分析与结构化数据导出。",
   adminPageTitle: "系统配置中心",
   adminPageDesc: "权重调节与多维度权限管控。",
@@ -100,14 +107,7 @@ export const DEFAULT_SITE_CONFIG: SiteConfig = {
   footerBrandName: "TB-Screen Health Portal",
   footerDescription: "引领公共卫生领域的数字化转型，致力于通过算法与数据的力量提升结核病早期筛查的精准度与效率。",
   footerContactEmail: "contact@tbscreen.tech",
-  footerContactPhone: "400-888-2025"
+  footerContactPhone: "400-888-2025",
+  footerSupportLabel: "系统支持",
+  footerEmergencyLabel: "紧急求助"
 };
-
-export const RISK_THRESHOLDS = [
-  { level: '无风险', min: 0, max: 10, suggestion: '维持健康生活习惯，定期进行常规体检。' },
-  { level: '低风险', min: 11, max: 20, suggestion: '建议临床观察，若出现长期咳嗽等典型症状请及时随访。' },
-  { level: '中风险', min: 21, max: 40, suggestion: '建议启动PPD/QFT筛查，并进行胸部低剂量螺旋CT扫描。' },
-  { level: '高风险', min: 41, max: 60, suggestion: '高度疑似感染，请立即进行病原学检测，包括痰涂片及分子诊断。' },
-  { level: '极高危风险', min: 61, max: 99, suggestion: '极高危！需立即转诊至结核病定点专科医院进行规范化排查。' },
-  { level: '确诊结核病', min: 100, max: 999, suggestion: '临床诊断确立，请立即依据指南启动标准化化疗方案。' }
-];

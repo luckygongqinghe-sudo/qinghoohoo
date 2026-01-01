@@ -1,10 +1,11 @@
 
 import React, { createContext, useContext, useState, useEffect } from 'react';
-import { User, Case, ScoringConfig, SiteConfig, UserRole, AppState } from './types.ts';
+import { User, Case, ScoringConfig, SiteConfig, UserRole, AppState, ThemeMode } from './types.ts';
 import { DEFAULT_CONFIG, DEFAULT_SITE_CONFIG } from './constants.ts';
 
 interface StoreContextType extends AppState {
   setCurrentUser: (user: User | null) => void;
+  setTheme: (theme: ThemeMode) => void;
   addUser: (username: string, role: UserRole, password?: string, approved?: boolean) => void;
   toggleUserStatus: (id: string) => void;
   updateUserRole: (id: string, role: UserRole) => void;
@@ -21,12 +22,10 @@ interface StoreContextType extends AppState {
 
 const StoreContext = createContext<StoreContextType | undefined>(undefined);
 
-// 深度合并函数，确保配置项缺失时能回退到默认值
 const safeMergeConfig = <T extends object>(saved: string | null, defaultValue: T): T => {
   if (!saved) return defaultValue;
   try {
     const parsed = JSON.parse(saved);
-    // 合并第一层级，确保 history, symptoms 等大类存在
     return { ...defaultValue, ...parsed };
   } catch (e) {
     return defaultValue;
@@ -35,6 +34,8 @@ const safeMergeConfig = <T extends object>(saved: string | null, defaultValue: T
 
 export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [currentUser, setCurrentUser] = useState<User | null>(null);
+  const [theme, setThemeState] = useState<ThemeMode>(() => (localStorage.getItem('tb_theme') as ThemeMode) || 'light');
+  
   const [users, setUsers] = useState<User[]>(() => {
     const saved = localStorage.getItem('tb_users');
     if (saved) return JSON.parse(saved);
@@ -61,6 +62,16 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   useEffect(() => { localStorage.setItem('tb_cases', JSON.stringify(cases)); }, [cases]);
   useEffect(() => { localStorage.setItem('tb_config', JSON.stringify(config)); }, [config]);
   useEffect(() => { localStorage.setItem('tb_site_config', JSON.stringify(siteConfig)); }, [siteConfig]);
+  useEffect(() => {
+    localStorage.setItem('tb_theme', theme);
+    if (theme === 'dark') {
+      document.documentElement.classList.add('dark');
+    } else {
+      document.documentElement.classList.remove('dark');
+    }
+  }, [theme]);
+
+  const setTheme = (mode: ThemeMode) => setThemeState(mode);
 
   const addUser = (username: string, role: UserRole, password?: string, approved: boolean = false) => {
     const newUser: User = { id: Date.now().toString(), username, password: password || '123456', role, active: true, approved };
@@ -83,7 +94,6 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   };
 
   const deleteCases = (ids: string[]) => {
-    if (!ids.length) return;
     setCases(prev => prev.filter(c => !ids.includes(c.id)));
   };
 
@@ -93,8 +103,8 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
   return (
     <StoreContext.Provider value={{
-      currentUser, users, cases, config, siteConfig,
-      setCurrentUser, addUser, toggleUserStatus, updateUserRole, updateUserPassword, approveUser, deleteUser, 
+      currentUser, users, cases, config, siteConfig, theme,
+      setCurrentUser, setTheme, addUser, toggleUserStatus, updateUserRole, updateUserPassword, approveUser, deleteUser, 
       addCase, updateCase, deleteCases, updateConfig, updateSiteConfig, logout
     }}>
       {children}
