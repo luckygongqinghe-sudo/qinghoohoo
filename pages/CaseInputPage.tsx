@@ -25,7 +25,8 @@ import {
   AlertCircle,
   Users,
   SearchCode,
-  ExternalLink
+  ExternalLink,
+  Shield
 } from 'lucide-react';
 
 const CaseInputPage: React.FC = () => {
@@ -54,6 +55,7 @@ const CaseInputPage: React.FC = () => {
   const [isAiProcessing, setIsAiProcessing] = useState(false);
   const [aiError, setAiError] = useState<string | null>(null);
   const [aiResult, setAiResult] = useState<AiInference | null>(null);
+  const [activeEngine, setActiveEngine] = useState<'Gemini' | 'DeepSeek' | 'None'>('None');
 
   const [bmi, setBmi] = useState(0);
   const [totalScore, setTotalScore] = useState(0);
@@ -143,78 +145,100 @@ const CaseInputPage: React.FC = () => {
   const runAiSynergy = async () => {
     setAiError(null);
     setIsAiProcessing(true);
+    setActiveEngine('None');
 
     try {
-      // 核心修复：检查 API KEY 是否存在
-      const apiKey = process.env.API_KEY;
+      // 获取 API Key
+      const apiKey = process.env.API_KEY || '';
+      
       if (!apiKey) {
-        // 如果环境变量没有，尝试触发选择器（仅当 aistudio 存在时）
-        const aistudio = (window as any).aistudio;
-        if (aistudio && typeof aistudio.openSelectKey === 'function') {
-          await aistudio.openSelectKey();
-          // 注意：此处不中断，假设 openSelectKey 会注入 key
-        } else {
-          throw new Error("API Key 未注入且 AISTUDIO 环境不可用，请检查系统配置。");
-        }
+        throw new Error("检测到 API_KEY 未注入。请确保在 Vercel Settings -> Environment Variables 中添加名为 API_KEY 的变量并重新部署。");
       }
 
-      // 每次调用都重新实例化以确保获取最新 key
-      const ai = new GoogleGenAI({ apiKey: process.env.API_KEY || '' });
-      
+      // 智能引擎切换逻辑
+      const isDeepSeek = apiKey.startsWith('sk-');
+      setActiveEngine(isDeepSeek ? 'DeepSeek' : 'Gemini');
+
       const prompt = `
         你是一个基于神经网络与专家知识协同架构 (Neural-Expert Synergy v2.0) 的结核病专家。
+        【受检者画像】
+        - 基础体征: ${formData.gender}, ${formData.age}岁, BMI ${bmi}
+        - 临床症状: ${formData.symptoms.join(', ') || '无典型症状'}
+        - 暴露风险: ${formData.exposure}
+        - 影像学(CT): ${formData.ctFeature || '无特定描述'}
+        - 实验室: QFT(${formData.qft}), 涂片(${formData.smear}), 培养(${formData.culture})
+        - 专家系统总分: ${totalScore}
+        - 临床线索: ${rawNotes || '无补充'}
         
-        【临床输入数据】
-        - 基础资料: ${formData.gender}, ${formData.age}岁, BMI ${bmi}
-        - 典型症状: ${formData.symptoms.join(', ') || '未见'}
-        - 风险接触史: ${formData.exposure}
-        - 影像特征(胸部CT): ${formData.ctFeature || '无特定表现'}
-        - 实验室结果: QFT(${formData.qft}), 痰涂片(${formData.smear}), 痰培养(${formData.culture})
-        - 当前专家规则评分: ${totalScore}
-        - 风险分级预判: ${risk.level}
+        【规则约束】
+        1. 病原学阴性（涂片和培养均阴性）时，禁止给出“确诊”结论。
+        2. 返回格式必须是纯 JSON。
         
-        【判定约束】
-        1. 确诊底线：病原学阴性（涂片/培养均为阴性）时，绝不可建议“确诊”，fusionScore 应低于 100。
-        2. 影像分析：重点评估影像特征（如空洞、播散）与症状的关联度。
-
         【输出规范】
-        必须返回 JSON 格式：
         {
-          "reasoning": "中文深度医学逻辑推导",
+          "reasoning": "中文医学推导报告",
           "fusionScore": 0-150之间的整数,
-          "anomalies": ["发现的非典型信号"],
-          "suggestedAction": "临床处置建议",
-          "confidence": 0-1之间的置信度
+          "anomalies": ["非典型表现列表"],
+          "suggestedAction": "临床建议内容",
+          "confidence": 0-1之间的数值
         }
       `;
 
-      const response = await ai.models.generateContent({
-        model: 'gemini-3-pro-preview',
-        contents: { parts: [{ text: prompt }] },
-        config: { 
-          responseMimeType: "application/json",
-          thinkingConfig: { thinkingBudget: 16000 }
+      let result: any = null;
+
+      if (isDeepSeek) {
+        // --- DeepSeek Engine ---
+        const response = await fetch('https://api.deepseek.com/chat/completions', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${apiKey}`
+          },
+          body: JSON.stringify({
+            model: "deepseek-chat",
+            messages: [
+              { role: "system", content: "你是一个专业的结核病辅助诊断AI，请仅返回 JSON 格式结果。" },
+              { role: "user", content: prompt }
+            ],
+            response_format: { type: 'json_object' }
+          })
+        });
+
+        if (!response.ok) {
+          const errorData = await response.json().catch(() => ({}));
+          throw new Error(errorData.error?.message || `DeepSeek API 响应异常 (${response.status})`);
         }
-      });
 
-      const responseText = response.text;
-      if (!responseText) throw new Error("协同引擎响应结果为空。");
+        const data = await response.json();
+        result = JSON.parse(data.choices[0].message.content);
 
-      let cleanJson = responseText.trim();
-      if (cleanJson.includes('```')) {
-        cleanJson = cleanJson.replace(/```[a-z]*\n/i, "").replace(/\n```/g, "").trim();
-      }
-      
-      const result = JSON.parse(cleanJson);
-      setAiResult(result);
-    } catch (err: any) {
-      console.error("AI Synergy Detail Error:", err);
-      // 如果是常见的浏览器 Key 报错，给出更友好的引导
-      if (err.message?.includes("API Key")) {
-        setAiError("API 配置校验失败。请确保系统已获得有效的 Gemini API 授权（管理员请检查环境变量配置）。");
       } else {
-        setAiError(`协同推理服务异常: ${err.message || '未知通信错误'}`);
+        // --- Gemini Engine ---
+        // 只有使用 Gemini Pro 时才需要检查 aistudio 权限，这里我们先常规连接
+        const ai = new GoogleGenAI({ apiKey });
+        const response = await ai.models.generateContent({
+          model: 'gemini-3-pro-preview', // 使用最新预览版以获得最佳思考能力
+          contents: { parts: [{ text: prompt }] },
+          config: { 
+            responseMimeType: "application/json",
+            thinkingConfig: { thinkingBudget: 16000 }
+          }
+        });
+
+        const text = response.text;
+        if (!text) throw new Error("Gemini 引擎未返回任何结果");
+        
+        // 清理 markdown 标签
+        const cleanJson = text.replace(/```json|```/gi, '').trim();
+        result = JSON.parse(cleanJson);
       }
+
+      if (result) {
+        setAiResult(result);
+      }
+    } catch (err: any) {
+      console.error("AI Synergy Error:", err);
+      setAiError(err.message || '推理过程中发生未知错误，请检查网络或密钥有效性。');
     } finally {
       setIsAiProcessing(false);
     }
@@ -303,7 +327,6 @@ const CaseInputPage: React.FC = () => {
         <div className="lg:col-span-2 space-y-6">
           <form id="screening-form" onSubmit={handleSubmit} className="bg-white dark:bg-slate-900 rounded-[2.5rem] p-8 md:p-10 border border-slate-100 dark:border-slate-800 shadow-xl space-y-10">
             
-            {/* 1. 基础体征 */}
             <section className="space-y-6">
               <h3 className="text-lg font-black text-slate-950 dark:text-white flex items-center gap-3 uppercase tracking-tighter">
                 <div className="w-1.5 h-6 bg-emerald-600 rounded-full" />
@@ -343,7 +366,6 @@ const CaseInputPage: React.FC = () => {
               </div>
             </section>
 
-            {/* 2. 影像表现与风险接触 */}
             <section className="space-y-6">
               <h3 className="text-lg font-black text-slate-950 dark:text-white flex items-center gap-3 uppercase tracking-tighter">
                 <div className="w-1.5 h-6 bg-amber-500 rounded-full" />
@@ -385,7 +407,6 @@ const CaseInputPage: React.FC = () => {
               </div>
             </section>
 
-            {/* 3. 临床表现 */}
             <section className="space-y-6">
               <h3 className="text-lg font-black text-slate-950 dark:text-white flex items-center gap-3 uppercase tracking-tighter">
                 <div className="w-1.5 h-6 bg-blue-600 rounded-full" />
@@ -425,7 +446,6 @@ const CaseInputPage: React.FC = () => {
               </div>
             </section>
 
-            {/* 4. 病原学检测 */}
             <section className="space-y-6 bg-slate-50 dark:bg-slate-800/40 p-8 rounded-3xl border border-slate-100 dark:border-slate-800">
               <h3 className="text-lg font-black text-slate-950 dark:text-white flex items-center gap-3 uppercase tracking-tighter">
                 <div className="w-1.5 h-6 bg-rose-600 rounded-full" />
@@ -471,7 +491,6 @@ const CaseInputPage: React.FC = () => {
           </form>
         </div>
 
-        {/* 侧栏分析卡片 */}
         <div className="space-y-6">
           <div className="bg-white dark:bg-slate-900 rounded-[2.5rem] p-8 border border-slate-100 dark:border-slate-800 shadow-2xl flex flex-col items-center">
             <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] mb-10 flex items-center gap-2">
@@ -511,7 +530,7 @@ const CaseInputPage: React.FC = () => {
                 <BrainCircuit size={16} className="text-indigo-400" /> Neural-Expert Synergy
               </h3>
               <div className="flex items-center gap-2 px-3 py-1 bg-indigo-500/10 rounded-full border border-indigo-500/20">
-                <span className="text-[8px] font-black text-indigo-400 uppercase tracking-widest">Gemini 3 Pro</span>
+                <span className="text-[8px] font-black text-indigo-400 uppercase tracking-widest">{isAiProcessing ? `Engine: ${activeEngine}` : 'Synergy Ready'}</span>
               </div>
             </div>
 
@@ -520,7 +539,7 @@ const CaseInputPage: React.FC = () => {
                 <textarea 
                   value={rawNotes}
                   onChange={e => setRawNotes(e.target.value)}
-                  placeholder="在此输入补充临床线索（如 CT 报告细节、具体接触背景等），点击启动深度 AI 推理融合..."
+                  placeholder="在此输入补充临床线索... 如果 API KEY 以 sk- 开头，将自动启动 DeepSeek 推理引擎。"
                   className="w-full h-32 bg-white/5 border border-white/10 rounded-2xl p-5 text-[13px] font-bold text-white placeholder:text-slate-700 focus:ring-1 focus:ring-indigo-500 outline-none transition-all resize-none leading-relaxed"
                 />
                 <Terminal size={14} className="absolute bottom-4 right-4 text-slate-800 pointer-events-none" />
@@ -529,11 +548,10 @@ const CaseInputPage: React.FC = () => {
               <div className="p-4 bg-indigo-500/5 rounded-2xl border border-indigo-500/10">
                 <div className="flex items-center gap-2 text-indigo-400 mb-2">
                   <ShieldCheck size={14} />
-                  <span className="text-[9px] font-black uppercase tracking-widest">专家协同引擎状态</span>
+                  <span className="text-[9px] font-black uppercase tracking-widest">协同推理说明</span>
                 </div>
                 <p className="text-[10px] text-slate-500 leading-relaxed font-bold">
-                  启动 AI 前，请确保您在协作时已确认相关的隐私合规条款。
-                  <a href="https://ai.google.dev/gemini-api/docs/billing" target="_blank" className="text-indigo-400 hover:underline inline-flex items-center ml-1">计费与配额文档 <ExternalLink size={8} className="ml-0.5" /></a>
+                  系统已集成跨引擎网关。检测到 Vercel 环境变量后将自动连接。建议在病原学阴性时启用 AI 推理进行矛盾点识别。
                 </p>
               </div>
 
@@ -541,10 +559,10 @@ const CaseInputPage: React.FC = () => {
                 type="button"
                 onClick={runAiSynergy}
                 disabled={isAiProcessing}
-                className={`w-full py-5 rounded-2xl font-black text-xs uppercase tracking-widest flex items-center justify-center gap-3 transition-all active:scale-[0.98] ${isAiProcessing ? 'bg-slate-800 text-slate-500' : 'bg-indigo-600 text-white hover:bg-indigo-50 hover:text-indigo-600 shadow-xl shadow-indigo-600/20'}`}
+                className={`w-full py-5 rounded-2xl font-black text-xs uppercase tracking-widest flex items-center justify-center gap-3 transition-all active:scale-[0.98] ${isAiProcessing ? 'bg-slate-800 text-slate-500 cursor-not-allowed' : 'bg-indigo-600 text-white hover:bg-indigo-50 hover:text-indigo-600 shadow-xl shadow-indigo-600/20'}`}
               >
                 {isAiProcessing ? <Loader2 size={16} className="animate-spin" /> : <Sparkles size={16} />}
-                {isAiProcessing ? '推理分析中...' : '启动 AI 协同推理'}
+                {isAiProcessing ? `正在使用 ${activeEngine} 进行推理...` : '启动 AI 协同推理'}
               </button>
 
               {aiError && (
