@@ -145,13 +145,20 @@ const CaseInputPage: React.FC = () => {
     setIsAiProcessing(true);
 
     try {
-      // 修复核心：检查并触发 API Key 选择对话框
-      if (!(await (window as any).aistudio.hasSelectedApiKey())) {
-        await (window as any).aistudio.openSelectKey();
-        // 按照指令，触发后视为成功并继续
+      // 修复核心：增加对 window.aistudio 的防御性检查
+      const aistudio = (window as any).aistudio;
+      if (aistudio && typeof aistudio.hasSelectedApiKey === 'function') {
+        if (!(await aistudio.hasSelectedApiKey())) {
+          await aistudio.openSelectKey();
+        }
+      } else {
+        // 如果环境没有 aistudio 对象，检查环境变量中是否有 Key
+        if (!process.env.API_KEY) {
+          throw new Error("系统检测到 API Key 未配置。如果是管理员，请检查环境配置；如果是用户，请联系支持。");
+        }
       }
 
-      // 修复核心：在调用前即时实例化 GoogleGenAI
+      // 即时实例化 GoogleGenAI
       const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
       
       const prompt = `
@@ -202,13 +209,7 @@ const CaseInputPage: React.FC = () => {
       setAiResult(result);
     } catch (err: any) {
       console.error("AI Synergy Error:", err);
-      // 如果报错是因为密钥不存在或过期
-      if (err.message?.includes("Requested entity was not found")) {
-        setAiError("API 密钥校验失败，请重新选择并点击启动。");
-        await (window as any).aistudio.openSelectKey();
-      } else {
-        setAiError(`协同推理服务异常: ${err.message || '未知通信错误'}`);
-      }
+      setAiError(`协同推理服务异常: ${err.message || '未知通信错误'}`);
     } finally {
       setIsAiProcessing(false);
     }
@@ -337,11 +338,11 @@ const CaseInputPage: React.FC = () => {
               </div>
             </section>
 
-            {/* 2. 修复：影像表现与风险接触 */}
+            {/* 2. 影像表现与风险接触 */}
             <section className="space-y-6">
               <h3 className="text-lg font-black text-slate-950 dark:text-white flex items-center gap-3 uppercase tracking-tighter">
                 <div className="w-1.5 h-6 bg-amber-500 rounded-full" />
-                影像表现与风险接触
+                影像表现与风险接触史
               </h3>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
                 <div className="space-y-4">
@@ -459,7 +460,7 @@ const CaseInputPage: React.FC = () => {
               </div>
             </section>
 
-            <button type="submit" form="screening-form" disabled={submitted} className={`w-full py-6 rounded-2xl font-black text-xl text-white transition-all shadow-xl flex items-center justify-center gap-3 active:scale-[0.98] ${submitted ? 'bg-emerald-600' : 'bg-slate-950 dark:bg-emerald-600 hover:scale-101'}`}>
+            <button type="submit" form="screening-form" disabled={submitted} className={`w-full py-6 rounded-2xl font-black text-xl text-white transition-all shadow-xl flex items-center justify-center gap-3 active:scale-[0.98] ${submitted ? 'bg-emerald-600' : 'bg-slate-950 dark:bg-emerald-600 hover:scale-105 transition-transform'}`}>
               {submitted ? ( <><CheckCircle2 /> 评估报告已归档</> ) : editId ? ( <><Edit3 size={18}/> 更新档案信息</> ) : ( <><ChevronRight /> 提交评估并计算分级</> )}
             </button>
           </form>
@@ -526,7 +527,7 @@ const CaseInputPage: React.FC = () => {
                   <span className="text-[9px] font-black uppercase tracking-widest">安全与计费说明</span>
                 </div>
                 <p className="text-[10px] text-slate-500 leading-relaxed font-bold">
-                  启动 AI 前，您需要确保已在对话框中选择了有效的付费 API 密钥。 
+                  启动 AI 前，建议在环境配置中选择有效的付费 API 密钥以确保服务稳定。 
                   <a href="https://ai.google.dev/gemini-api/docs/billing" target="_blank" className="text-indigo-400 hover:underline inline-flex items-center ml-1">计费文档 <ExternalLink size={8} className="ml-0.5" /></a>
                 </p>
               </div>
@@ -544,7 +545,7 @@ const CaseInputPage: React.FC = () => {
               {aiError && (
                 <div className="p-4 bg-rose-500/10 border border-rose-500/20 rounded-2xl flex items-start gap-3 text-rose-400 animate-in fade-in slide-in-from-top-2">
                   <AlertCircle size={18} className="shrink-0 mt-0.5" />
-                  <div className="text-xs font-bold">{aiError}</div>
+                  <div className="text-xs font-bold leading-relaxed">{aiError}</div>
                 </div>
               )}
 
@@ -572,7 +573,7 @@ const CaseInputPage: React.FC = () => {
                   <div className="bg-emerald-500/10 rounded-2xl p-5 border border-emerald-500/20">
                     <div className="flex items-center gap-2 mb-3">
                       <Activity size={14} className="text-emerald-400" />
-                      <span className="text-[9px] font-black text-emerald-400 uppercase tracking-widest">专家建议</span>
+                      <span className="text-[9px] font-black uppercase tracking-widest">专家建议</span>
                     </div>
                     <p className="text-[12px] leading-relaxed text-slate-200 font-bold">{aiResult.suggestedAction}</p>
                   </div>
