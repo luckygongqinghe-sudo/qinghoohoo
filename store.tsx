@@ -1,5 +1,5 @@
 
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { createClient } from '@supabase/supabase-js';
 import { User, Case, ScoringConfig, SiteConfig, UserRole, AppState, ThemeMode } from './types.ts';
 import { DEFAULT_CONFIG, DEFAULT_SITE_CONFIG } from './constants.ts';
@@ -7,7 +7,13 @@ import { DEFAULT_CONFIG, DEFAULT_SITE_CONFIG } from './constants.ts';
 const SUPABASE_URL = 'https://mmwikcigbeesrmvoeswi.supabase.co';
 const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1td2lrY2lnYmVlc3Jtdm9lc3dpIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjcyNjkyMTgsImV4cCI6MjA4Mjg0NTIxOH0.KtAZoY-d7_2vl3bZTgGVc2pobJN2en4Sjei02_aFld8';
 
-const supabase = (SUPABASE_URL.startsWith('http')) ? createClient(SUPABASE_URL, SUPABASE_ANON_KEY) : null;
+const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+  realtime: {
+    params: {
+      eventsPerSecond: 10,
+    },
+  },
+});
 
 interface StoreContextType extends AppState {
   isLoading: boolean;
@@ -23,6 +29,7 @@ interface StoreContextType extends AppState {
   updateCase: (id: string, updatedCase: Case) => Promise<void>;
   deleteCases: (ids: string[]) => Promise<void>;
   mergeCases: (incoming: Case[]) => Promise<number>;
+  updateGlobalConfig: (newScoring: ScoringConfig, newSite: SiteConfig) => Promise<void>;
   updateConfig: (newConfig: ScoringConfig) => Promise<void>;
   updateSiteConfig: (newConfig: SiteConfig) => Promise<void>;
   logout: () => void;
@@ -39,14 +46,8 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const [config, setConfig] = useState<ScoringConfig>(DEFAULT_CONFIG);
   const [siteConfig, setSiteConfig] = useState<SiteConfig>(DEFAULT_SITE_CONFIG);
 
-  const fetchData = async () => {
-    if (!supabase) {
-      setIsLoading(false);
-      return;
-    }
-
+  const fetchData = useCallback(async () => {
     try {
-      setIsLoading(true);
       const [configRes, userRes, caseRes] = await Promise.all([
         supabase.from('configs').select('*').eq('id', 'current').maybeSingle(),
         supabase.from('users').select('*'),
@@ -54,38 +55,52 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       ]);
 
       if (configRes.data) {
-        if (configRes.data.scoring_config) setConfig(configRes.data.scoring_config);
-        if (configRes.data.site_config) setSiteConfig(configRes.data.site_config);
+        // 关键：深度合并默认配置，防止云端 JSON 缺失字段导致页面崩溃
+        if (configRes.data.scoring_config) {
+          setConfig({ ...DEFAULT_CONFIG, ...configRes.data.scoring_config });
+        }
+        if (configRes.data.site_config) {
+          setSiteConfig({ ...DEFAULT_SITE_CONFIG, ...configRes.data.site_config });
+        }
+      } else {
+        // 数据库初始化
+        await supabase.from('configs').upsert({ 
+          id: 'current', 
+          scoring_config: DEFAULT_CONFIG, 
+          site_config: DEFAULT_SITE_CONFIG 
+        }, { onConflict: 'id' });
       }
 
       if (userRes.data) setUsers(userRes.data as User[]);
       if (caseRes.data) setCases(caseRes.data.map((c: any) => c.data) as Case[]);
     } catch (error) {
-      console.error('Initial fetch failed:', error);
+      console.error('Data Sync Error:', error);
     } finally {
       setIsLoading(false);
     }
-  };
+  }, []);
 
   useEffect(() => {
     fetchData();
-    if (!supabase) return;
 
+    // 跨网络实时监听：使用单一稳定频道并启用广播
     const channel = supabase
-      .channel('realtime-sync')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'users' }, () => {
-        fetchData();
-      })
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'cases' }, (payload) => {
-        fetchData(); 
-      })
+      .channel('global-realtime-v1')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'configs' }, (payload) => {
-        fetchData();
+        const data = payload.new as any;
+        if (data) {
+          if (data.scoring_config) setConfig(prev => ({ ...prev, ...data.scoring_config }));
+          if (data.site_config) setSiteConfig(prev => ({ ...prev, ...data.site_config }));
+        }
       })
-      .subscribe();
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'users' }, () => fetchData())
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'cases' }, () => fetchData())
+      .subscribe((status) => {
+        if (status === 'SUBSCRIBED') console.log('Connected to Cloud Sync Engine');
+      });
 
     return () => { supabase.removeChannel(channel); };
-  }, []);
+  }, [fetchData]);
 
   const setTheme = (mode: ThemeMode) => {
     setThemeState(mode);
@@ -93,86 +108,71 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   };
 
   const addUser = async (username: string, role: UserRole, password?: string, approved: boolean = false) => {
-    const newUser: User = { 
-      id: Date.now().toString(), 
-      username, 
-      password: password || '123456', 
-      role, 
-      active: true, 
-      approved: approved 
-    };
-    if (supabase) {
-      await supabase.from('users').upsert(newUser, { onConflict: 'username' });
-    }
-    setUsers(prev => [...prev.filter(u => u.username !== username), newUser]);
+    const newUser: User = { id: Date.now().toString(), username, password: password || '123456', role, active: true, approved };
+    await supabase.from('users').upsert(newUser, { onConflict: 'username' });
     return newUser;
   };
 
   const toggleUserStatus = async (id: string) => {
     const user = users.find(u => u.id === id);
-    if (!user) return;
-    const nextStatus = !user.active;
-    if (supabase) await supabase.from('users').update({ active: nextStatus }).eq('id', id);
-    setUsers(prev => prev.map(u => u.id === id ? { ...u, active: nextStatus } : u));
+    if (user) await supabase.from('users').update({ active: !user.active }).eq('id', id);
   };
 
   const updateUserRole = async (id: string, role: UserRole) => {
-    if (supabase) await supabase.from('users').update({ role }).eq('id', id);
-    setUsers(prev => prev.map(u => u.id === id ? { ...u, role } : u));
+    await supabase.from('users').update({ role }).eq('id', id);
   };
 
   const updateUserPassword = async (id: string, newPassword: string) => {
-    if (supabase) await supabase.from('users').update({ password: newPassword }).eq('id', id);
-    setUsers(prev => prev.map(u => u.id === id ? { ...u, password: newPassword } : u));
+    await supabase.from('users').update({ password: newPassword }).eq('id', id);
   };
 
   const approveUser = async (id: string) => {
-    if (supabase) await supabase.from('users').update({ approved: true }).eq('id', id);
-    setUsers(prev => prev.map(u => u.id === id ? { ...u, approved: true } : u));
+    await supabase.from('users').update({ approved: true }).eq('id', id);
   };
 
   const deleteUser = async (id: string) => {
-    if (supabase) await supabase.from('users').delete().eq('id', id);
-    setUsers(prev => prev.filter(u => u.id !== id));
+    await supabase.from('users').delete().eq('id', id);
   };
 
   const addCase = async (newCase: Case) => {
-    if (supabase) {
-      await supabase.from('cases').insert({ id: newCase.id, data: newCase, creator_id: newCase.creatorId });
-    }
-    setCases(prev => [newCase, ...prev.filter(c => c.id !== newCase.id)]);
+    await supabase.from('cases').insert({ id: newCase.id, data: newCase, creator_id: newCase.creatorId });
   };
 
   const updateCase = async (id: string, updatedCase: Case) => {
-    if (supabase) {
-      await supabase.from('cases').update({ data: updatedCase }).eq('id', id);
-    }
-    setCases(prev => prev.map(c => c.id === id ? updatedCase : c));
+    await supabase.from('cases').update({ data: updatedCase }).eq('id', id);
   };
 
   const deleteCases = async (ids: string[]) => {
-    if (supabase) await supabase.from('cases').delete().in('id', ids);
-    setCases(prev => prev.filter(c => !ids.includes(c.id)));
+    await supabase.from('cases').delete().in('id', ids);
   };
 
   const mergeCases = async (incoming: Case[]) => {
     const newOnes = incoming.filter(ic => !cases.some(p => p.id === ic.id));
-    if (newOnes.length > 0 && supabase) {
-      const payloads = newOnes.map(c => ({ id: c.id, data: c, creator_id: c.creatorId }));
-      await supabase.from('cases').insert(payloads);
+    if (newOnes.length > 0) {
+      await supabase.from('cases').insert(newOnes.map(c => ({ id: c.id, data: c, creator_id: c.creatorId })));
     }
-    setCases(prev => [...newOnes, ...prev]);
     return newOnes.length;
   };
 
+  const updateGlobalConfig = async (newScoring: ScoringConfig, newSite: SiteConfig) => {
+    const { error } = await supabase.from('configs').upsert({ 
+      id: 'current', 
+      scoring_config: newScoring, 
+      site_config: newSite, 
+      updated_at: new Date() 
+    }, { onConflict: 'id' });
+    
+    if (error) throw error;
+    setConfig(newScoring);
+    setSiteConfig(newSite);
+  };
+
   const updateConfig = async (newConfig: ScoringConfig) => {
-    if (supabase) await supabase.from('configs').update({ scoring_config: newConfig, updated_at: new Date() }).eq('id', 'current');
-    setConfig(newConfig);
+    await updateGlobalConfig(newConfig, siteConfig);
   };
 
   const updateSiteConfig = async (newConfig: SiteConfig) => {
-    if (supabase) await supabase.from('configs').update({ site_config: newConfig, updated_at: new Date() }).eq('id', 'current');
-    setSiteConfig(newConfig);
+    await updateGlobalConfig(config, newConfig);
   };
 
   const logout = () => setCurrentUser(null);
@@ -181,7 +181,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     <StoreContext.Provider value={{
       currentUser, users, cases, config, siteConfig, theme, isLoading,
       setCurrentUser, setTheme, addUser, toggleUserStatus, updateUserRole, updateUserPassword, approveUser, deleteUser, 
-      addCase, updateCase, deleteCases, mergeCases, updateConfig, updateSiteConfig, logout
+      addCase, updateCase, deleteCases, mergeCases, updateGlobalConfig, updateConfig, updateSiteConfig, logout
     }}>
       {children}
     </StoreContext.Provider>
