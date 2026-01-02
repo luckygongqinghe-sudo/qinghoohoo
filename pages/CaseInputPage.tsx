@@ -22,7 +22,6 @@ import {
   Loader2,
   Terminal,
   ShieldCheck,
-  Info,
   AlertCircle
 } from 'lucide-react';
 
@@ -98,6 +97,7 @@ const CaseInputPage: React.FC = () => {
     }
   }, [formData.height, formData.weight]);
 
+  // 严谨的分级逻辑：病原学阴性即便评分再高也不得确诊
   useEffect(() => {
     let score = 0;
     (formData.history || []).forEach(h => score += config.history[h] || 0);
@@ -110,7 +110,7 @@ const CaseInputPage: React.FC = () => {
 
     const isPathogenPositive = formData.smear === '阳性' || formData.culture === '阳性';
     
-    let finalLevel = '未定义';
+    let finalLevel = '计算中...';
     let finalSuggestion = '';
 
     if (isPathogenPositive) {
@@ -118,17 +118,17 @@ const CaseInputPage: React.FC = () => {
       finalSuggestion = config.thresholds.find(t => t.level === '确诊结核病')?.suggestion || '检测到阳性病原学结果，请立即启动规范化治疗。';
       if (score < 100) score = 100; 
     } else {
-      const matchingThreshold = config.thresholds
+      const thresholdsSorted = [...config.thresholds]
         .filter(t => t.level !== '确诊结核病')
-        .sort((a, b) => b.min - a.min)
-        .find(t => score >= t.min);
-      
-      if (matchingThreshold) {
-        finalLevel = matchingThreshold.level;
-        finalSuggestion = matchingThreshold.suggestion;
+        .sort((a, b) => b.min - a.min);
+
+      const match = thresholdsSorted.find(t => score >= t.min);
+      if (match) {
+        finalLevel = match.level;
+        finalSuggestion = match.suggestion;
       } else if (score >= 100) {
         finalLevel = '极高危风险';
-        finalSuggestion = '临床总分极高（已超过确诊线），但病原学检测目前为阴性。需立即复查病原学，严禁在无证据时判定确诊。';
+        finalSuggestion = '临床总分极高，但病原学阴性。需立即复查病原学，严禁在无证据时判定确诊。';
       } else {
         finalLevel = '无风险';
         finalSuggestion = '维持常规监测。';
@@ -145,6 +145,10 @@ const CaseInputPage: React.FC = () => {
 
     try {
       const apiKey = process.env.API_KEY;
+      if (!apiKey) {
+        throw new Error("API Key 未在环境变量中配置，请联系系统管理员。");
+      }
+
       const ai = new GoogleGenAI({ apiKey });
       
       const prompt = `
@@ -153,19 +157,21 @@ const CaseInputPage: React.FC = () => {
         【患者特征矩阵】
         - 基础: ${formData.gender}, ${formData.age}岁, BMI ${bmi}
         - 临床症状: ${formData.symptoms.join(', ') || '无'}
+        - 既往史: ${formData.history.join(', ') || '无'}
+        - 暴露接触: ${formData.exposure}
         - 影像(CT): ${formData.ctFeature || '无描述'}
         - 实验室检查: QFT实验(${formData.qft}), 痰涂片(${formData.smear}), 痰培养(${formData.culture})
-        - 原始分值: ${totalScore}
-        - 当前风险判定: ${risk.level}
+        - 原始评分: ${totalScore}
+        - 当前风险阶梯: ${risk.level}
         
-        【业务核心规则】
-        1. 确诊判定：只有当痰涂片或痰培养为“阳性”时，fusionScore 才允许设定在 100 分以上。
-        2. 如果病原学为阴性，无论 CT 或症状多么典型，最高分值不得超过 99 分。
+        【判定约束】
+        1. 确诊唯一性：除非痰涂片或痰培养为“阳性”，否则不得在 fusionScore 中给出 100 分以上或建议“确诊”。
+        2. 风险融合：重点分析影像特征与症状的匹配度。
 
-        【输出要求】
-        请直接返回纯 JSON 格式：
+        【输出规范】
+        必须返回纯 JSON 格式：
         {
-          "reasoning": "中文深度医学推导报告",
+          "reasoning": "中文医学推导报告",
           "fusionScore": 0-150之间的整数,
           "anomalies": ["发现的临床冲突点"],
           "suggestedAction": "临床处置建议",
@@ -183,7 +189,7 @@ const CaseInputPage: React.FC = () => {
       });
 
       const responseText = response.text;
-      if (!responseText) throw new Error("引擎响应为空");
+      if (!responseText) throw new Error("协同引擎响应为空");
 
       let cleanJson = responseText.trim();
       if (cleanJson.includes('```')) {
@@ -194,7 +200,7 @@ const CaseInputPage: React.FC = () => {
       setAiResult(result);
     } catch (err: any) {
       console.error("AI Synergy Error:", err);
-      setAiError(err.message || "协同推理引擎调用失败，请稍后重试。");
+      setAiError(err.message || "协同推理引擎连接异常，请检查 API 配置。");
     } finally {
       setIsAiProcessing(false);
     }
@@ -282,6 +288,7 @@ const CaseInputPage: React.FC = () => {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <div className="lg:col-span-2 space-y-6">
           <form id="screening-form" onSubmit={handleSubmit} className="bg-white dark:bg-slate-900 rounded-[2.5rem] p-8 md:p-10 border border-slate-100 dark:border-slate-800 shadow-xl space-y-10">
+            {/* 患者体征 */}
             <section className="space-y-6">
               <h3 className="text-lg font-black text-slate-950 dark:text-white flex items-center gap-3 uppercase tracking-tighter">
                 <div className="w-1.5 h-6 bg-emerald-600 rounded-full" />
@@ -321,6 +328,7 @@ const CaseInputPage: React.FC = () => {
               </div>
             </section>
 
+            {/* 临床症状 */}
             <section className="space-y-6">
               <h3 className="text-lg font-black text-slate-950 dark:text-white flex items-center gap-3 uppercase tracking-tighter">
                 <div className="w-1.5 h-6 bg-blue-600 rounded-full" />
@@ -360,34 +368,35 @@ const CaseInputPage: React.FC = () => {
               </div>
             </section>
 
+            {/* 影像表现与风险接触 (修复缺失部分) */}
             <section className="space-y-6">
               <h3 className="text-lg font-black text-slate-950 dark:text-white flex items-center gap-3 uppercase tracking-tighter">
                 <div className="w-1.5 h-6 bg-amber-500 rounded-full" />
                 影像表现与风险接触
               </h3>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <div>
-                  <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3 flex items-center gap-2">
+                <div className="space-y-3">
+                  <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2">
                     <Zap size={14} className="text-amber-500" /> 流行病学接触史
                   </label>
                   <select 
                     value={formData.exposure} 
                     onChange={e => setFormData({...formData, exposure: e.target.value})}
-                    className="w-full px-5 py-3.5 rounded-xl bg-slate-50 dark:bg-slate-800 border-none text-slate-900 dark:text-white font-black text-sm outline-none shadow-inner cursor-pointer"
+                    className="w-full px-5 py-3.5 rounded-xl bg-slate-50 dark:bg-slate-800 border-none text-slate-900 dark:text-white font-black text-sm outline-none shadow-inner cursor-pointer focus:ring-1 focus:ring-amber-500"
                   >
                     {Object.keys(config.exposure).map(exp => (
                       <option key={exp} value={exp}>{exp} (+{config.exposure[exp]})</option>
                     ))}
                   </select>
                 </div>
-                <div>
-                  <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3 flex items-center gap-2">
+                <div className="space-y-3">
+                  <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2">
                     <Eye size={14} className="text-blue-500" /> 胸部 CT 影像特征
                   </label>
                   <select 
                     value={formData.ctFeature} 
                     onChange={e => setFormData({...formData, ctFeature: e.target.value})}
-                    className="w-full px-5 py-3.5 rounded-xl bg-slate-50 dark:bg-slate-800 border-none text-slate-900 dark:text-white font-black text-sm outline-none shadow-inner cursor-pointer"
+                    className="w-full px-5 py-3.5 rounded-xl bg-slate-50 dark:bg-slate-800 border-none text-slate-900 dark:text-white font-black text-sm outline-none shadow-inner cursor-pointer focus:ring-1 focus:ring-blue-500"
                   >
                     <option value="">请选择主要影像学改变...</option>
                     {Object.keys(config.ctFeatures).map(feat => (
@@ -398,6 +407,7 @@ const CaseInputPage: React.FC = () => {
               </div>
             </section>
 
+            {/* 实验室病原学检测 */}
             <section className="space-y-6 bg-slate-50 dark:bg-slate-800/40 p-6 rounded-3xl border border-slate-100 dark:border-slate-800">
               <h3 className="text-lg font-black text-slate-950 dark:text-white flex items-center gap-3 uppercase tracking-tighter">
                 <div className="w-1.5 h-6 bg-rose-600 rounded-full" />
@@ -443,6 +453,7 @@ const CaseInputPage: React.FC = () => {
           </form>
         </div>
 
+        {/* 侧边实时分析 */}
         <div className="space-y-6">
           <div className="bg-white dark:bg-slate-900 rounded-[2.5rem] p-8 border border-slate-100 dark:border-slate-800 shadow-2xl flex flex-col items-center">
             <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] mb-10 flex items-center gap-2">
@@ -476,6 +487,7 @@ const CaseInputPage: React.FC = () => {
             </div>
           </div>
 
+          {/* AI 推理模块 */}
           <div className="bg-slate-950 rounded-[2.5rem] p-8 shadow-2xl flex flex-col border border-white/5">
             <div className="w-full flex items-center justify-between mb-8">
               <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] flex items-center gap-2">
