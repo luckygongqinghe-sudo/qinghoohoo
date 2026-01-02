@@ -23,8 +23,7 @@ import {
   Terminal,
   ShieldCheck,
   Info,
-  AlertCircle,
-  Key
+  AlertCircle
 } from 'lucide-react';
 
 const CaseInputPage: React.FC = () => {
@@ -53,7 +52,6 @@ const CaseInputPage: React.FC = () => {
   const [isAiProcessing, setIsAiProcessing] = useState(false);
   const [aiError, setAiError] = useState<string | null>(null);
   const [aiResult, setAiResult] = useState<AiInference | null>(null);
-  const [needsApiKey, setNeedsApiKey] = useState(false);
 
   const [bmi, setBmi] = useState(0);
   const [totalScore, setTotalScore] = useState(0);
@@ -63,7 +61,6 @@ const CaseInputPage: React.FC = () => {
   });
   const [submitted, setSubmitted] = useState(false);
 
-  // 初始化或编辑加载
   useEffect(() => {
     if (editId && isInitialLoad.current) {
       const existingCase = cases.find(c => c.id === editId);
@@ -91,7 +88,6 @@ const CaseInputPage: React.FC = () => {
     }
   }, [editId, cases]);
 
-  // 计算 BMI
   useEffect(() => {
     const h = parseFloat(formData.height) / 100;
     const w = parseFloat(formData.weight);
@@ -102,7 +98,6 @@ const CaseInputPage: React.FC = () => {
     }
   }, [formData.height, formData.weight]);
 
-  // 严谨的风险分级计算 (核心修改点：病原学阳性作为确诊硬门槛)
   useEffect(() => {
     let score = 0;
     (formData.history || []).forEach(h => score += config.history[h] || 0);
@@ -115,30 +110,25 @@ const CaseInputPage: React.FC = () => {
 
     const isPathogenPositive = formData.smear === '阳性' || formData.culture === '阳性';
     
-    let finalLevel = '计算中...';
+    let finalLevel = '未定义';
     let finalSuggestion = '';
 
     if (isPathogenPositive) {
-      // 病原学阳性：确诊
       finalLevel = '确诊结核病';
-      finalSuggestion = config.thresholds.find(t => t.level === '确诊结核病')?.suggestion || '检测到阳性病原学结果，请立即依据指南启动规范化治疗。';
+      finalSuggestion = config.thresholds.find(t => t.level === '确诊结核病')?.suggestion || '检测到阳性病原学结果，请立即启动规范化治疗。';
       if (score < 100) score = 100; 
     } else {
-      // 病原学阴性：即使分值超过 100，也强制限制在“极高危风险”
-      // 过滤掉“确诊”等级进行匹配
-      const nonConfirmedThresholds = [...config.thresholds]
+      const matchingThreshold = config.thresholds
         .filter(t => t.level !== '确诊结核病')
-        .sort((a, b) => b.min - a.min); // 从高到低排序
-
-      const match = nonConfirmedThresholds.find(t => score >= t.min);
+        .sort((a, b) => b.min - a.min)
+        .find(t => score >= t.min);
       
-      if (match) {
-        finalLevel = match.level;
-        finalSuggestion = match.suggestion;
+      if (matchingThreshold) {
+        finalLevel = matchingThreshold.level;
+        finalSuggestion = matchingThreshold.suggestion;
       } else if (score >= 100) {
-        // 分值很高但无证据
         finalLevel = '极高危风险';
-        finalSuggestion = '临床总分极高（已超过确诊线），但病原学检测目前为阴性。需立即复查病原学或行内镜下采样，严禁直接判定确诊。';
+        finalSuggestion = '临床总分极高（已超过确诊线），但病原学检测目前为阴性。需立即复查病原学，严禁在无证据时判定确诊。';
       } else {
         finalLevel = '无风险';
         finalSuggestion = '维持常规监测。';
@@ -149,39 +139,14 @@ const CaseInputPage: React.FC = () => {
     setRisk({ level: finalLevel, suggestion: finalSuggestion });
   }, [formData, config]);
 
-  const handleSelectKey = async () => {
-    if (window.aistudio && typeof window.aistudio.openSelectKey === 'function') {
-      await window.aistudio.openSelectKey();
-      setNeedsApiKey(false);
-      setAiError(null);
-    }
-  };
-
   const runAiSynergy = async () => {
     setAiError(null);
     setIsAiProcessing(true);
 
-    // 1. 检查 API Key 授权状态
-    if (window.aistudio && typeof window.aistudio.hasSelectedApiKey === 'function') {
-      const hasKey = await window.aistudio.hasSelectedApiKey();
-      if (!hasKey) {
-        setNeedsApiKey(true);
-        setIsAiProcessing(false);
-        return;
-      }
-    }
-
     try {
-      // 2. 实时实例化 AI Client (必须使用最新的 process.env.API_KEY)
       const apiKey = process.env.API_KEY;
-      if (!apiKey) {
-        setNeedsApiKey(true);
-        throw new Error("API Key 未检测到，请点击授权。");
-      }
-
       const ai = new GoogleGenAI({ apiKey });
       
-      // 构建专业医学提示词
       const prompt = `
         你是一个基于神经网络与专家知识协同架构 (Neural-Expert Synergy v2.0) 的结核病专家。
         
@@ -191,39 +156,35 @@ const CaseInputPage: React.FC = () => {
         - 影像(CT): ${formData.ctFeature || '无描述'}
         - 实验室检查: QFT实验(${formData.qft}), 痰涂片(${formData.smear}), 痰培养(${formData.culture})
         - 原始分值: ${totalScore}
-        - 当前风险阶梯: ${risk.level}
+        - 当前风险判定: ${risk.level}
         
-        【非结构化病历记录】
-        "${rawNotes || '未提供补充信息'}"
+        【业务核心规则】
+        1. 确诊判定：只有当痰涂片或痰培养为“阳性”时，fusionScore 才允许设定在 100 分以上。
+        2. 如果病原学为阴性，无论 CT 或症状多么典型，最高分值不得超过 99 分。
 
-        【判定约束】
-        1. 确诊唯一性：除非痰涂片或痰培养为“阳性”，否则禁止在 fusionScore 中给出 100 分以上。
-        2. 推理重点：分析 CT 表现与症状的协同风险，识别非典型性结核特征。
-
-        【输出规范】
-        必须返回纯 JSON 格式：
+        【输出要求】
+        请直接返回纯 JSON 格式：
         {
           "reasoning": "中文深度医学推导报告",
           "fusionScore": 0-150之间的整数,
-          "anomalies": ["发现的临床冲突点或矛盾点"],
-          "suggestedAction": "下一步临床处置建议",
+          "anomalies": ["发现的临床冲突点"],
+          "suggestedAction": "临床处置建议",
           "confidence": 0-1之间的浮点数
         }
       `;
 
       const response = await ai.models.generateContent({
         model: 'gemini-3-pro-preview',
-        contents: prompt,
+        contents: [{ role: 'user', parts: [{ text: prompt }] }],
         config: { 
           responseMimeType: "application/json",
-          thinkingConfig: { thinkingBudget: 32000 }
+          thinkingConfig: { thinkingBudget: 24576 }
         }
       });
 
       const responseText = response.text;
-      if (!responseText) throw new Error("协同引擎响应为空");
+      if (!responseText) throw new Error("引擎响应为空");
 
-      // 提取 JSON
       let cleanJson = responseText.trim();
       if (cleanJson.includes('```')) {
         cleanJson = cleanJson.replace(/```[a-z]*\n/i, "").replace(/\n```/g, "").trim();
@@ -233,14 +194,7 @@ const CaseInputPage: React.FC = () => {
       setAiResult(result);
     } catch (err: any) {
       console.error("AI Synergy Error:", err);
-      
-      // 处理特定的“未找到”或“无效”Key 错误
-      if (err.message && (err.message.includes("not found") || err.message.includes("404"))) {
-        setNeedsApiKey(true);
-        setAiError("API Key 权限已过期或未激活，请重新选取。");
-      } else {
-        setAiError(err.message || "协同推理引擎连接超时。");
-      }
+      setAiError(err.message || "协同推理引擎调用失败，请稍后重试。");
     } finally {
       setIsAiProcessing(false);
     }
@@ -257,7 +211,6 @@ const CaseInputPage: React.FC = () => {
     e.preventDefault();
     if (!currentUser) return;
 
-    // 最终存储逻辑：二次确认确诊标准
     const finalScore = aiResult?.fusionScore ?? totalScore;
     const isPathogenPositive = formData.smear === '阳性' || formData.culture === '阳性';
     
@@ -265,7 +218,6 @@ const CaseInputPage: React.FC = () => {
     if (isPathogenPositive) {
       finalRiskLevel = '确诊结核病';
     } else {
-      // 重新从配置中查找
       const match = config.thresholds.find(t => finalScore >= t.min && finalScore <= t.max && t.level !== '确诊结核病');
       finalRiskLevel = match ? match.level : (finalScore >= 100 ? '极高危风险' : risk.level);
     }
@@ -330,7 +282,6 @@ const CaseInputPage: React.FC = () => {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <div className="lg:col-span-2 space-y-6">
           <form id="screening-form" onSubmit={handleSubmit} className="bg-white dark:bg-slate-900 rounded-[2.5rem] p-8 md:p-10 border border-slate-100 dark:border-slate-800 shadow-xl space-y-10">
-            {/* 患者体征 */}
             <section className="space-y-6">
               <h3 className="text-lg font-black text-slate-950 dark:text-white flex items-center gap-3 uppercase tracking-tighter">
                 <div className="w-1.5 h-6 bg-emerald-600 rounded-full" />
@@ -370,7 +321,6 @@ const CaseInputPage: React.FC = () => {
               </div>
             </section>
 
-            {/* 临床症状 */}
             <section className="space-y-6">
               <h3 className="text-lg font-black text-slate-950 dark:text-white flex items-center gap-3 uppercase tracking-tighter">
                 <div className="w-1.5 h-6 bg-blue-600 rounded-full" />
@@ -410,7 +360,44 @@ const CaseInputPage: React.FC = () => {
               </div>
             </section>
 
-            {/* 影像与病原学矩阵 (关键风险区) */}
+            <section className="space-y-6">
+              <h3 className="text-lg font-black text-slate-950 dark:text-white flex items-center gap-3 uppercase tracking-tighter">
+                <div className="w-1.5 h-6 bg-amber-500 rounded-full" />
+                影像表现与风险接触
+              </h3>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div>
+                  <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3 flex items-center gap-2">
+                    <Zap size={14} className="text-amber-500" /> 流行病学接触史
+                  </label>
+                  <select 
+                    value={formData.exposure} 
+                    onChange={e => setFormData({...formData, exposure: e.target.value})}
+                    className="w-full px-5 py-3.5 rounded-xl bg-slate-50 dark:bg-slate-800 border-none text-slate-900 dark:text-white font-black text-sm outline-none shadow-inner cursor-pointer"
+                  >
+                    {Object.keys(config.exposure).map(exp => (
+                      <option key={exp} value={exp}>{exp} (+{config.exposure[exp]})</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3 flex items-center gap-2">
+                    <Eye size={14} className="text-blue-500" /> 胸部 CT 影像特征
+                  </label>
+                  <select 
+                    value={formData.ctFeature} 
+                    onChange={e => setFormData({...formData, ctFeature: e.target.value})}
+                    className="w-full px-5 py-3.5 rounded-xl bg-slate-50 dark:bg-slate-800 border-none text-slate-900 dark:text-white font-black text-sm outline-none shadow-inner cursor-pointer"
+                  >
+                    <option value="">请选择主要影像学改变...</option>
+                    {Object.keys(config.ctFeatures).map(feat => (
+                      <option key={feat} value={feat}>{feat} (+{config.ctFeatures[feat]})</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+            </section>
+
             <section className="space-y-6 bg-slate-50 dark:bg-slate-800/40 p-6 rounded-3xl border border-slate-100 dark:border-slate-800">
               <h3 className="text-lg font-black text-slate-950 dark:text-white flex items-center gap-3 uppercase tracking-tighter">
                 <div className="w-1.5 h-6 bg-rose-600 rounded-full" />
@@ -456,7 +443,6 @@ const CaseInputPage: React.FC = () => {
           </form>
         </div>
 
-        {/* 侧边实时分析 */}
         <div className="space-y-6">
           <div className="bg-white dark:bg-slate-900 rounded-[2.5rem] p-8 border border-slate-100 dark:border-slate-800 shadow-2xl flex flex-col items-center">
             <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] mb-10 flex items-center gap-2">
@@ -490,7 +476,6 @@ const CaseInputPage: React.FC = () => {
             </div>
           </div>
 
-          {/* AI 推理模块 */}
           <div className="bg-slate-950 rounded-[2.5rem] p-8 shadow-2xl flex flex-col border border-white/5">
             <div className="w-full flex items-center justify-between mb-8">
               <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] flex items-center gap-2">
@@ -511,20 +496,6 @@ const CaseInputPage: React.FC = () => {
                 />
                 <Terminal size={14} className="absolute bottom-4 right-4 text-slate-800 pointer-events-none" />
               </div>
-
-              {needsApiKey && (
-                <div className="p-5 bg-amber-500/10 border border-amber-500/20 rounded-2xl space-y-3 animate-in fade-in slide-in-from-top-2">
-                  <div className="flex items-center gap-2 text-amber-400 font-black text-[10px] uppercase tracking-widest">
-                    <Key size={14} /> 需 API KEY 授权
-                  </div>
-                  <button 
-                    onClick={handleSelectKey}
-                    className="w-full py-2 bg-amber-600 text-white rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-amber-500 transition-all shadow-lg"
-                  >
-                    立即选取 API KEY
-                  </button>
-                </div>
-              )}
 
               <button 
                 type="button"
