@@ -147,11 +147,11 @@ const CaseInputPage: React.FC = () => {
     setActiveEngine('None');
 
     try {
-      // 兼容性获取 API_KEY
-      const apiKey = process.env.API_KEY || (window as any).API_KEY;
+      // 深度检查 API_KEY，防止 Vercel 注入失败
+      const apiKey = process.env.API_KEY || (window as any).process?.env?.API_KEY || (window as any).API_KEY;
       
-      if (!apiKey) {
-        throw new Error("环境变量 API_KEY 为空。请在 Vercel 项目设置中确认变量名全大写，并进行【Redeploy（重新部署）】。");
+      if (!apiKey || apiKey === "undefined" || apiKey.trim() === "") {
+        throw new Error("检测到 API_KEY 环境变量为空。请检查 Vercel 项目设置 -> Environment Variables 是否正确添加了名为 API_KEY 的变量，并且【务必执行一次 Redeploy】使变量生效。");
       }
 
       const isDeepSeek = apiKey.startsWith('sk-');
@@ -161,25 +161,24 @@ const CaseInputPage: React.FC = () => {
         你是一个基于神经网络与专家知识协同架构的结核病诊断专家。
         【当前病例画像】
         - 基础体征: ${formData.gender}, ${formData.age}岁, BMI ${bmi}
-        - 临床表现: ${formData.symptoms.join(', ') || '无明显症状'}
-        - 流行病学接触: ${formData.exposure}
-        - 影像特征: ${formData.ctFeature || '无显著特征'}
-        - 指标数据: QFT(${formData.qft}), 涂片(${formData.smear}), 培养(${formData.culture})
-        - 既往背景: ${formData.history.join(', ') || '无'}
-        - 临床指南评分: ${totalScore}
-        - 临床备注: ${rawNotes || '无'}
+        - 临床症状: ${formData.symptoms.join(', ') || '无明显症状'}
+        - 流行病学风险: ${formData.exposure}
+        - 影像学表现: ${formData.ctFeature || '无显著影像特征'}
+        - 实验室结果: QFT(${formData.qft}), 涂片(${formData.smear}), 培养(${formData.culture})
+        - 临床指南得分: ${totalScore}
+        - 指南风险评级: ${risk.level}
+        - 补充临床备注: ${rawNotes || '无'}
 
-        【任务】
-        请基于以上信息，生成临床评估报告。
-        1. 必须返回纯 JSON 格式。
-        2. 若涂片/培养阴性，禁止给出确诊结论。
-
-        【JSON 格式要求】
+        【任务要求】
+        1. 必须返回纯 JSON 格式报告。
+        2. 如果病原学(涂片/培养)均为阴性，严禁直接得出确诊结论，应识别数据矛盾。
+        
+        【JSON 输出结构】
         {
-          "reasoning": "中文临床推导链条",
+          "reasoning": "中文临床推导逻辑",
           "fusionScore": 0-150 之间的整数,
-          "anomalies": ["非典型表现列表"],
-          "suggestedAction": "下一步临床建议",
+          "anomalies": ["非典型或矛盾表现列表"],
+          "suggestedAction": "临床下一步决策建议",
           "confidence": 0-1 之间的数值
         }
       `;
@@ -196,7 +195,7 @@ const CaseInputPage: React.FC = () => {
           body: JSON.stringify({
             model: "deepseek-chat",
             messages: [
-              { role: "system", content: "你是一个专业的医学 AI 专家。请始终返回 JSON 格式。" },
+              { role: "system", content: "你是一个专业的医学诊断AI，请仅返回 JSON 格式结果。" },
               { role: "user", content: prompt }
             ],
             response_format: { type: 'json_object' }
@@ -211,26 +210,27 @@ const CaseInputPage: React.FC = () => {
         const data = await response.json();
         result = JSON.parse(data.choices[0].message.content);
       } else {
+        // 使用标准的 Gemini 初始化
         const ai = new GoogleGenAI({ apiKey });
         const response = await ai.models.generateContent({
           model: 'gemini-3-pro-preview',
-          contents: prompt,
+          contents: { parts: [{ text: prompt }] },
           config: {
-            systemInstruction: "你是一个结核病诊断辅助系统，旨在提供基于医学证据的深度推理。",
+            systemInstruction: "你是一个结核病诊断辅助系统，旨在提供深度医学证据推理。",
             responseMimeType: "application/json",
             thinkingConfig: { thinkingBudget: 16000 }
           }
         });
 
         const text = response.text;
-        if (!text) throw new Error("Gemini 引擎未返回结果");
+        if (!text) throw new Error("Gemini 引擎未能生成有效推导内容。");
         result = JSON.parse(text);
       }
 
       setAiResult(result);
     } catch (err: any) {
-      console.error("Inference Sync Error:", err);
-      setAiError(`AI 协同失败: ${err.message}`);
+      console.error("AI Synergy Execution Error:", err);
+      setAiError(err.message || "由于网络或配置原因，协同推理请求失败。");
     } finally {
       setIsAiProcessing(false);
     }
