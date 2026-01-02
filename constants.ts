@@ -110,9 +110,5 @@ export const DEFAULT_SITE_CONFIG: SiteConfig = {
   adminPageDesc: "权重调节与多维度权限管控。",
 
   footerBrandName: "Q.he TOY-LAB",
-  footerDescription: "引领公共卫生领域的数字化转型，致力于通过算法 with 数据提升结核病早期筛查的精准度与效率。",
-  footerContactEmail: "qinghoohoo@qq.com",
-  footerContactPhone: "15xxxx11970",
-  footerSupportLabel: "系统支持",
-  footerEmergencyLabel: "联系电话"
+  footerDescription: "引领公共卫生领域的数字化转型，致力于通过算法 with 数据提升结核病早期筛查的精准度与效率。"
 };

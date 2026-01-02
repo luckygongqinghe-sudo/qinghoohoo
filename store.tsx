@@ -77,7 +77,10 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         fetchData();
       })
       .on('postgres_changes', { event: '*', schema: 'public', table: 'cases' }, (payload) => {
-        fetchData(); // 简化处理，发生变化时重新拉取
+        fetchData(); 
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'configs' }, (payload) => {
+        fetchData();
       })
       .subscribe();
 
@@ -96,7 +99,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       password: password || '123456', 
       role, 
       active: true, 
-      approved: approved // 如果是普通注册，此处由调用方传 false
+      approved: approved 
     };
     if (supabase) {
       await supabase.from('users').upsert(newUser, { onConflict: 'username' });

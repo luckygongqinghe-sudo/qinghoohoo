@@ -1,8 +1,8 @@
 
 import React, { useState, useEffect } from 'react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
-import { useStore } from '../store';
-import { Case } from '../types';
+import { useStore } from '../store.tsx';
+import { Case } from '../types.ts';
 import { 
   Calculator, 
   ChevronRight, 
@@ -11,11 +11,12 @@ import {
   Edit3,
   ArrowLeft,
   Microscope,
-  Activity,
   Zap,
   Eye,
   Stethoscope,
-  AlertTriangle
+  AlertTriangle,
+  // Fix: Added missing Activity icon import
+  Activity
 } from 'lucide-react';
 
 const CaseInputPage: React.FC = () => {
@@ -89,29 +90,24 @@ const CaseInputPage: React.FC = () => {
     score += config.smear[formData.smear] || 0;
     score += config.culture[formData.culture] || 0;
 
-    // 严格医学逻辑：只有痰涂片阳性或培养阳性才能进入“确诊”状态
     const isPathogenPositive = formData.smear === '阳性' || formData.culture === '阳性';
     
     let finalLevel = '未定义';
     let finalSuggestion = '当前分值未匹配到建议。';
 
     if (isPathogenPositive) {
-      // 满足病原学金标准
       const confThreshold = config.thresholds.find(t => t.level.includes('确诊'));
       finalLevel = confThreshold?.level || '确诊结核病';
       finalSuggestion = confThreshold?.suggestion || '检测到阳性病原学结果，依据指南立即启动治疗。';
-      if (score < 100) score = 100; // 确诊后锁定为最高分层分值
+      if (score < 100) score = 100; 
     } else {
-      // 不满足病原学金标准：即使分数再高，也只能匹配非确诊的分层
       const nonConfThresholds = config.thresholds.filter(t => !t.level.includes('确诊'));
-      // 按分值范围寻找匹配
       const matchingThreshold = nonConfThresholds.find(t => score >= t.min && score <= t.max);
       
       if (matchingThreshold) {
         finalLevel = matchingThreshold.level;
         finalSuggestion = matchingThreshold.suggestion;
       } else if (score >= 100) {
-        // 如果分值超过确诊阈值但无病原学证据，降级为非确诊类别的最高风险等级
         const highestNonConf = [...nonConfThresholds].sort((a,b) => b.max - a.max)[0];
         finalLevel = highestNonConf?.level || '极高危风险';
         finalSuggestion = `(分值偏高但缺乏病原学证据) ${highestNonConf?.suggestion || '建议进一步完善病原学检查。'}`;
@@ -201,7 +197,6 @@ const CaseInputPage: React.FC = () => {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <div className="lg:col-span-2 space-y-6">
           <form onSubmit={handleSubmit} className="bg-white dark:bg-slate-900 rounded-[2.5rem] p-8 md:p-10 border border-slate-100 dark:border-slate-800 shadow-xl space-y-10">
-            {/* 患者体征 */}
             <section className="space-y-6">
               <h3 className="text-lg font-black text-slate-950 dark:text-white flex items-center gap-3 uppercase tracking-tighter">
                 <div className="w-1.5 h-6 bg-emerald-600 rounded-full" />
@@ -210,11 +205,11 @@ const CaseInputPage: React.FC = () => {
               <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                 <div>
                   <InputLabel label="患者姓名" />
-                  <input required value={formData.name} onChange={e => setFormData({...formData, name: e.target.value})} className="w-full px-5 py-3.5 rounded-xl bg-slate-50 dark:bg-slate-800 border-none font-black text-slate-950 dark:text-white transition-all shadow-inner" placeholder="输入姓名"/>
+                  <input required value={formData.name} onChange={e => setFormData({...formData, name: e.target.value})} className="w-full px-5 py-3.5 rounded-xl bg-slate-50 dark:bg-slate-800 border-none font-black text-slate-950 dark:text-white shadow-inner outline-none focus:ring-1 focus:ring-emerald-500" placeholder="姓名"/>
                 </div>
                 <div>
                   <InputLabel label="实足年龄" />
-                  <input required type="number" value={formData.age} onChange={e => setFormData({...formData, age: e.target.value})} className="w-full px-5 py-3.5 rounded-xl bg-slate-50 dark:bg-slate-800 border-none font-black text-slate-950 dark:text-white shadow-inner" placeholder="岁"/>
+                  <input required type="number" value={formData.age} onChange={e => setFormData({...formData, age: e.target.value})} className="w-full px-5 py-3.5 rounded-xl bg-slate-50 dark:bg-slate-800 border-none font-black text-slate-950 dark:text-white shadow-inner outline-none" placeholder="岁"/>
                 </div>
                 <div>
                   <InputLabel label="生理性别" />
@@ -241,7 +236,6 @@ const CaseInputPage: React.FC = () => {
               </div>
             </section>
 
-            {/* 临床症状 */}
             <section className="space-y-6">
               <h3 className="text-lg font-black text-slate-950 dark:text-white flex items-center gap-3 uppercase tracking-tighter">
                 <div className="w-1.5 h-6 bg-blue-600 rounded-full" />
@@ -281,20 +275,57 @@ const CaseInputPage: React.FC = () => {
               </div>
             </section>
 
-            {/* 病原学核心 - 确诊依据 */}
+            <section className="space-y-6">
+              <h3 className="text-lg font-black text-slate-950 dark:text-white flex items-center gap-3 uppercase tracking-tighter">
+                <div className="w-1.5 h-6 bg-amber-500 rounded-full" />
+                影像学与风险接触
+              </h3>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div>
+                  <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3 flex items-center gap-2">
+                    <Zap size={14} className="text-amber-500" /> 暴露接触史
+                  </label>
+                  <select 
+                    value={formData.exposure} 
+                    onChange={e => setFormData({...formData, exposure: e.target.value})}
+                    className="w-full px-5 py-3.5 rounded-xl bg-slate-50 dark:bg-slate-800 border-none text-slate-900 dark:text-white font-black text-sm outline-none"
+                  >
+                    {Object.keys(config.exposure).map(exp => (
+                      <option key={exp} value={exp}>{exp} (+{config.exposure[exp]})</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3 flex items-center gap-2">
+                    <Eye size={14} className="text-blue-500" /> 胸部 CT 影像特征
+                  </label>
+                  <select 
+                    value={formData.ctFeature} 
+                    onChange={e => setFormData({...formData, ctFeature: e.target.value})}
+                    className="w-full px-5 py-3.5 rounded-xl bg-slate-50 dark:bg-slate-800 border-none text-slate-900 dark:text-white font-black text-sm outline-none"
+                  >
+                    <option value="">选择主要表现...</option>
+                    {Object.keys(config.ctFeatures).map(feat => (
+                      <option key={feat} value={feat}>{feat} (+{config.ctFeatures[feat]})</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+            </section>
+
             <section className="space-y-6 bg-slate-50 dark:bg-slate-800/40 p-6 rounded-3xl border border-slate-100 dark:border-slate-800">
               <h3 className="text-lg font-black text-slate-950 dark:text-white flex items-center gap-3 uppercase tracking-tighter">
                 <div className="w-1.5 h-6 bg-rose-600 rounded-full" />
-                病原学金标准检测 (确诊硬性指标)
+                病原学金标准检测
               </h3>
               <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                 <div className="space-y-4">
                   <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2">
-                    <Microscope size={14} className="text-indigo-600" /> QFT 实验结果
+                    <Microscope size={14} className="text-indigo-600" /> QFT 实验
                   </label>
                   <div className="grid grid-cols-1 gap-1.5">
                     {Object.keys(config.qft).map(res => (
-                      <button key={res} type="button" onClick={() => setFormData({...formData, qft: res})} className={`px-4 py-2.5 rounded-xl border transition-all text-[11px] font-black ${formData.qft === res ? 'bg-indigo-50 border-indigo-600 text-indigo-700' : 'bg-white border-slate-100 text-slate-400'}`}>{res}</button>
+                      <button key={res} type="button" onClick={() => setFormData({...formData, qft: res})} className={`px-4 py-2.5 rounded-xl border transition-all text-[11px] font-black ${formData.qft === res ? 'bg-indigo-50 dark:bg-indigo-900/30 border-indigo-600 text-indigo-700 dark:text-indigo-400' : 'bg-white dark:bg-slate-800 border-slate-100 dark:border-slate-700 text-slate-400'}`}>{res}</button>
                     ))}
                   </div>
                 </div>
@@ -304,7 +335,7 @@ const CaseInputPage: React.FC = () => {
                   </label>
                   <div className="grid grid-cols-1 gap-1.5">
                     {Object.keys(config.smear).map(res => (
-                      <button key={res} type="button" onClick={() => setFormData({...formData, smear: res})} className={`px-4 py-2.5 rounded-xl border transition-all text-[11px] font-black ${formData.smear === res ? 'bg-rose-50 border-rose-600 text-rose-700 shadow-sm' : 'bg-white border-slate-100 text-slate-400'}`}>{res}</button>
+                      <button key={res} type="button" onClick={() => setFormData({...formData, smear: res})} className={`px-4 py-2.5 rounded-xl border transition-all text-[11px] font-black ${formData.smear === res ? 'bg-rose-50 dark:bg-rose-900/30 border-rose-600 text-rose-700 dark:text-rose-400' : 'bg-white dark:bg-slate-800 border-slate-100 dark:border-slate-700 text-slate-400'}`}>{res}</button>
                     ))}
                   </div>
                 </div>
@@ -314,7 +345,7 @@ const CaseInputPage: React.FC = () => {
                   </label>
                   <div className="grid grid-cols-1 gap-1.5">
                     {Object.keys(config.culture).map(res => (
-                      <button key={res} type="button" onClick={() => setFormData({...formData, culture: res})} className={`px-4 py-2.5 rounded-xl border transition-all text-[11px] font-black ${formData.culture === res ? 'bg-rose-50 border-rose-600 text-rose-700 shadow-sm' : 'bg-white border-slate-100 text-slate-400'}`}>{res}</button>
+                      <button key={res} type="button" onClick={() => setFormData({...formData, culture: res})} className={`px-4 py-2.5 rounded-xl border transition-all text-[11px] font-black ${formData.culture === res ? 'bg-rose-50 dark:bg-rose-900/30 border-rose-600 text-rose-700 dark:text-rose-400' : 'bg-white dark:bg-slate-800 border-slate-100 dark:border-slate-700 text-slate-400'}`}>{res}</button>
                     ))}
                   </div>
                 </div>
@@ -322,28 +353,25 @@ const CaseInputPage: React.FC = () => {
             </section>
 
             <button type="submit" disabled={submitted} className={`w-full py-5 rounded-2xl font-black text-lg text-white transition-all shadow-xl flex items-center justify-center gap-3 active:scale-[0.98] ${submitted ? 'bg-emerald-600' : 'bg-slate-950 dark:bg-emerald-600 hover:scale-[1.01]'}`}>
-              {submitted ? ( <><CheckCircle2 /> 数据原子同步成功</> ) : editId ? ( <><Edit3 size={18}/> 更新档案记录</> ) : ( <><ChevronRight /> 提交评估报告</> )}
+              {submitted ? ( <><CheckCircle2 /> 数据同步成功</> ) : editId ? ( <><Edit3 size={18}/> 更新记录</> ) : ( <><ChevronRight /> 提交评估</> )}
             </button>
           </form>
         </div>
 
-        {/* 侧边实时评分 */}
         <div className="space-y-6">
           <div className="bg-white dark:bg-slate-900 rounded-[2.5rem] p-8 border border-slate-100 dark:border-slate-800 shadow-2xl sticky top-28 flex flex-col items-center">
             <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] mb-10 flex items-center gap-2">
-              <Calculator size={16} className="text-emerald-600" /> 实时诊断评分引擎
+              <Calculator size={16} className="text-emerald-600" /> 实时评分引擎
             </h3>
-            
             <div className="mb-10 text-center">
               <div className="text-8xl font-black text-slate-950 dark:text-emerald-500 tracking-tighter">{totalScore}</div>
-              <div className="text-slate-400 text-[10px] font-black uppercase mt-2 tracking-widest">Clinical Matrix Score</div>
+              <div className="text-slate-400 text-[10px] font-black uppercase mt-2 tracking-widest">Medical Score</div>
             </div>
-
             <div className="w-full space-y-8">
               <div>
                 <div className="flex justify-between items-end mb-3">
-                  <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">预测风险分层</span>
-                  <span className={`font-black px-4 py-1.5 rounded-full text-[10px] uppercase border-2 ${risk.level === '确诊结核病' ? 'bg-rose-600 border-rose-600 text-white' : 'bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white border-slate-100'}`}>
+                  <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">风险分层</span>
+                  <span className={`font-black px-4 py-1.5 rounded-full text-[10px] uppercase border-2 ${risk.level === '确诊结核病' ? 'bg-rose-600 border-rose-600 text-white' : 'bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white border-slate-100 dark:border-slate-700'}`}>
                     {risk.level}
                   </span>
                 </div>
@@ -351,23 +379,15 @@ const CaseInputPage: React.FC = () => {
                   <div className="h-full transition-all duration-700 ease-out" style={{ width: `${Math.min((totalScore / 100) * 100, 100)}%`, backgroundColor: totalScore > 60 ? '#e11d48' : totalScore > 30 ? '#f59e0b' : '#10b981' }}></div>
                 </div>
               </div>
-
               <div className="p-6 bg-slate-50 dark:bg-slate-800 rounded-3xl border border-slate-100 dark:border-slate-700">
                 <div className="flex gap-4">
-                  <Activity className="shrink-0 w-6 h-6 text-emerald-600" />
+                  <Activity size={24} className="shrink-0 text-emerald-600" />
                   <div>
-                    <p className="text-[9px] font-black mb-2 text-slate-400 uppercase tracking-widest">临床处置建议</p>
+                    <p className="text-[9px] font-black mb-2 text-slate-400 uppercase tracking-widest">处置建议</p>
                     <p className="text-xs leading-relaxed text-slate-600 dark:text-slate-400 font-bold italic">“{risk.suggestion}”</p>
                   </div>
                 </div>
               </div>
-
-              {(formData.smear === '阴性' && formData.culture === '阴性' && totalScore >= 100) && (
-                <div className="p-4 bg-amber-50 border border-amber-200 rounded-2xl flex gap-3 items-center text-amber-700">
-                   <AlertTriangle size={20} className="shrink-0" />
-                   <p className="text-[10px] font-bold leading-snug">注意：临床总分已达确诊阈值，但病原学检测结果不支持确诊，系统已自动限制风险级别。请务必完善相关检查。</p>
-                </div>
-              )}
             </div>
           </div>
         </div>
@@ -377,7 +397,7 @@ const CaseInputPage: React.FC = () => {
 };
 
 const InputLabel = ({ label }: { label: string }) => (
-  <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2.5 ml-1">{label}</label>
+  <label className="block text-[10px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest mb-2.5 ml-1">{label}</label>
 );
 
 export default CaseInputPage;

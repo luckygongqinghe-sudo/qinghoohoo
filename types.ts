@@ -73,10 +73,6 @@ export interface SiteConfig {
   adminPageDesc: string;
   footerBrandName: string;
   footerDescription: string;
-  footerContactEmail: string;
-  footerContactPhone: string;
-  footerSupportLabel: string;
-  footerEmergencyLabel: string;
 }
 
 export interface User {
@@ -85,7 +81,7 @@ export interface User {
   password?: string;
   role: UserRole;
   active: boolean;
-  approved: boolean; // 新增：是否已通过审批
+  approved: boolean; 
 }
 
 export interface ScoringConfig {
