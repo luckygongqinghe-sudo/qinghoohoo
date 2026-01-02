@@ -145,44 +145,44 @@ const CaseInputPage: React.FC = () => {
     setIsAiProcessing(true);
 
     try {
-      // 修复核心：增加对 window.aistudio 的防御性检查
-      const aistudio = (window as any).aistudio;
-      if (aistudio && typeof aistudio.hasSelectedApiKey === 'function') {
-        if (!(await aistudio.hasSelectedApiKey())) {
+      // 核心修复：检查 API KEY 是否存在
+      const apiKey = process.env.API_KEY;
+      if (!apiKey) {
+        // 如果环境变量没有，尝试触发选择器（仅当 aistudio 存在时）
+        const aistudio = (window as any).aistudio;
+        if (aistudio && typeof aistudio.openSelectKey === 'function') {
           await aistudio.openSelectKey();
-        }
-      } else {
-        // 如果环境没有 aistudio 对象，检查环境变量中是否有 Key
-        if (!process.env.API_KEY) {
-          throw new Error("系统检测到 API Key 未配置。如果是管理员，请检查环境配置；如果是用户，请联系支持。");
+          // 注意：此处不中断，假设 openSelectKey 会注入 key
+        } else {
+          throw new Error("API Key 未注入且 AISTUDIO 环境不可用，请检查系统配置。");
         }
       }
 
-      // 即时实例化 GoogleGenAI
-      const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+      // 每次调用都重新实例化以确保获取最新 key
+      const ai = new GoogleGenAI({ apiKey: process.env.API_KEY || '' });
       
       const prompt = `
         你是一个基于神经网络与专家知识协同架构 (Neural-Expert Synergy v2.0) 的结核病专家。
         
-        【临床输入矩阵】
-        - 基础体征: ${formData.gender}, ${formData.age}岁, BMI ${bmi}
-        - 临床症状: ${formData.symptoms.join(', ') || '未见典型症状'}
-        - 流行病风险接触: ${formData.exposure}
-        - 影像表现(CT): ${formData.ctFeature || '无特定描述'}
-        - 实验室检查: QFT(${formData.qft}), 痰涂片(${formData.smear}), 痰培养(${formData.culture})
-        - 当前专家系统总分: ${totalScore}
-        - 风险预判: ${risk.level}
+        【临床输入数据】
+        - 基础资料: ${formData.gender}, ${formData.age}岁, BMI ${bmi}
+        - 典型症状: ${formData.symptoms.join(', ') || '未见'}
+        - 风险接触史: ${formData.exposure}
+        - 影像特征(胸部CT): ${formData.ctFeature || '无特定表现'}
+        - 实验室结果: QFT(${formData.qft}), 痰涂片(${formData.smear}), 痰培养(${formData.culture})
+        - 当前专家规则评分: ${totalScore}
+        - 风险分级预判: ${risk.level}
         
-        【判定硬约束】
-        1. 确诊底线：若痰涂片和痰培养均为“阴性”，绝对不可在建议中给出“确诊”结论，fusionScore 不得超过 100。
-        2. 影像分析：重点评估影像特征与流行病学接触史的匹配程度。
+        【判定约束】
+        1. 确诊底线：病原学阴性（涂片/培养均为阴性）时，绝不可建议“确诊”，fusionScore 应低于 100。
+        2. 影像分析：重点评估影像特征（如空洞、播散）与症状的关联度。
 
         【输出规范】
         必须返回 JSON 格式：
         {
-          "reasoning": "中文深度医学推导报告",
+          "reasoning": "中文深度医学逻辑推导",
           "fusionScore": 0-150之间的整数,
-          "anomalies": ["识别到的非典型表现"],
+          "anomalies": ["发现的非典型信号"],
           "suggestedAction": "临床处置建议",
           "confidence": 0-1之间的置信度
         }
@@ -198,7 +198,7 @@ const CaseInputPage: React.FC = () => {
       });
 
       const responseText = response.text;
-      if (!responseText) throw new Error("协同引擎响应为空");
+      if (!responseText) throw new Error("协同引擎响应结果为空。");
 
       let cleanJson = responseText.trim();
       if (cleanJson.includes('```')) {
@@ -208,8 +208,13 @@ const CaseInputPage: React.FC = () => {
       const result = JSON.parse(cleanJson);
       setAiResult(result);
     } catch (err: any) {
-      console.error("AI Synergy Error:", err);
-      setAiError(`协同推理服务异常: ${err.message || '未知通信错误'}`);
+      console.error("AI Synergy Detail Error:", err);
+      // 如果是常见的浏览器 Key 报错，给出更友好的引导
+      if (err.message?.includes("API Key")) {
+        setAiError("API 配置校验失败。请确保系统已获得有效的 Gemini API 授权（管理员请检查环境变量配置）。");
+      } else {
+        setAiError(`协同推理服务异常: ${err.message || '未知通信错误'}`);
+      }
     } finally {
       setIsAiProcessing(false);
     }
@@ -284,7 +289,7 @@ const CaseInputPage: React.FC = () => {
             {editId ? '编辑诊断档案' : siteConfig.inputPageTitle}
           </h1>
           <p className="text-slate-500 dark:text-slate-400 font-bold mt-0.5 text-sm italic">
-             {editId ? `病例识别码: ${editId}` : siteConfig.inputPageDesc}
+             {editId ? `档案 ID: ${editId}` : siteConfig.inputPageDesc}
           </p>
         </div>
         {editId && (
@@ -460,7 +465,7 @@ const CaseInputPage: React.FC = () => {
               </div>
             </section>
 
-            <button type="submit" form="screening-form" disabled={submitted} className={`w-full py-6 rounded-2xl font-black text-xl text-white transition-all shadow-xl flex items-center justify-center gap-3 active:scale-[0.98] ${submitted ? 'bg-emerald-600' : 'bg-slate-950 dark:bg-emerald-600 hover:scale-105 transition-transform'}`}>
+            <button type="submit" form="screening-form" disabled={submitted} className={`w-full py-6 rounded-2xl font-black text-xl text-white transition-all shadow-xl flex items-center justify-center gap-3 active:scale-[0.98] ${submitted ? 'bg-emerald-600' : 'bg-slate-950 dark:bg-emerald-600 hover:scale-[1.02] shadow-emerald-500/20'}`}>
               {submitted ? ( <><CheckCircle2 /> 评估报告已归档</> ) : editId ? ( <><Edit3 size={18}/> 更新档案信息</> ) : ( <><ChevronRight /> 提交评估并计算分级</> )}
             </button>
           </form>
@@ -524,11 +529,11 @@ const CaseInputPage: React.FC = () => {
               <div className="p-4 bg-indigo-500/5 rounded-2xl border border-indigo-500/10">
                 <div className="flex items-center gap-2 text-indigo-400 mb-2">
                   <ShieldCheck size={14} />
-                  <span className="text-[9px] font-black uppercase tracking-widest">安全与计费说明</span>
+                  <span className="text-[9px] font-black uppercase tracking-widest">专家协同引擎状态</span>
                 </div>
                 <p className="text-[10px] text-slate-500 leading-relaxed font-bold">
-                  启动 AI 前，建议在环境配置中选择有效的付费 API 密钥以确保服务稳定。 
-                  <a href="https://ai.google.dev/gemini-api/docs/billing" target="_blank" className="text-indigo-400 hover:underline inline-flex items-center ml-1">计费文档 <ExternalLink size={8} className="ml-0.5" /></a>
+                  启动 AI 前，请确保您在协作时已确认相关的隐私合规条款。
+                  <a href="https://ai.google.dev/gemini-api/docs/billing" target="_blank" className="text-indigo-400 hover:underline inline-flex items-center ml-1">计费与配额文档 <ExternalLink size={8} className="ml-0.5" /></a>
                 </p>
               </div>
 
