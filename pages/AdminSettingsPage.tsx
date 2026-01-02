@@ -24,7 +24,6 @@ import {
   RotateCcw,
   Shield,
   Activity,
-  // Added missing Sliders icon import
   Sliders
 } from 'lucide-react';
 
@@ -142,8 +141,9 @@ const AdminSettingsPage: React.FC = () => {
       setSaveSuccess(true);
       setIsInitialized(false);
       setTimeout(() => setSaveSuccess(false), 3000);
-    } catch (err) {
-      alert('云端同步失败，请检查网络权限');
+    } catch (err: any) {
+      console.error('Save error details:', err);
+      alert(`云端同步失败: ${err.message || '未知网络错误'}\n\n可能原因：数据库 RLS 权限策略限制了匿名写入。`);
     } finally {
       setIsSyncing(false);
     }
@@ -332,7 +332,7 @@ const AdminSettingsPage: React.FC = () => {
                       <textarea value={localSiteConfig.heroDescription} onChange={e => setLocalSiteConfig({...localSiteConfig, heroDescription: e.target.value})} className="w-full p-4 bg-slate-50 dark:bg-slate-800 rounded-xl font-bold text-slate-950 dark:text-slate-300 h-24 border-none resize-none shadow-inner leading-relaxed" />
                    </div>
                    <div><Label>主视觉 Badge</Label><input value={localSiteConfig.heroBadge} onChange={e => setLocalSiteConfig({...localSiteConfig, heroBadge: e.target.value})} className="w-full p-4 bg-slate-50 dark:bg-slate-800 rounded-xl font-black border-none shadow-inner text-slate-950 dark:text-white" /></div>
-                   <div><Label>主 CTA 文字</Label><input value={localSiteConfig.ctaText} onChange={e => setLocalSiteConfig({...localSiteConfig, ctaText: e.target.value})} className="w-full p-4 bg-slate-50 dark:bg-slate-800 rounded-xl font-black border-none shadow-inner text-slate-950 dark:text-white" /></div>
+                   <div><Label>主 CTA 文字</Label><input value={localSiteConfig.ctaText} onChange={e => setLocalSiteConfig({...localSiteConfig, CTA: e.target.value})} className="w-full p-4 bg-slate-50 dark:bg-slate-800 rounded-xl font-black border-none shadow-inner text-slate-950 dark:text-white" /></div>
                 </div>
              </div>
 

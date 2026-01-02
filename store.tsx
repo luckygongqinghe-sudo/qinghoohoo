@@ -55,7 +55,6 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       ]);
 
       if (configRes.data) {
-        // 关键：深度合并默认配置，防止云端 JSON 缺失字段导致页面崩溃
         if (configRes.data.scoring_config) {
           setConfig({ ...DEFAULT_CONFIG, ...configRes.data.scoring_config });
         }
@@ -63,7 +62,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
           setSiteConfig({ ...DEFAULT_SITE_CONFIG, ...configRes.data.site_config });
         }
       } else {
-        // 数据库初始化
+        // 初始化单例配置记录
         await supabase.from('configs').upsert({ 
           id: 'current', 
           scoring_config: DEFAULT_CONFIG, 
@@ -83,7 +82,6 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   useEffect(() => {
     fetchData();
 
-    // 跨网络实时监听：使用单一稳定频道并启用广播
     const channel = supabase
       .channel('global-realtime-v1')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'configs' }, (payload) => {
@@ -95,9 +93,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       })
       .on('postgres_changes', { event: '*', schema: 'public', table: 'users' }, () => fetchData())
       .on('postgres_changes', { event: '*', schema: 'public', table: 'cases' }, () => fetchData())
-      .subscribe((status) => {
-        if (status === 'SUBSCRIBED') console.log('Connected to Cloud Sync Engine');
-      });
+      .subscribe();
 
     return () => { supabase.removeChannel(channel); };
   }, [fetchData]);
@@ -155,14 +151,22 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   };
 
   const updateGlobalConfig = async (newScoring: ScoringConfig, newSite: SiteConfig) => {
-    const { error } = await supabase.from('configs').upsert({ 
-      id: 'current', 
-      scoring_config: newScoring, 
-      site_config: newSite, 
-      updated_at: new Date() 
-    }, { onConflict: 'id' });
+    // 移除手动赋值的 updated_at 以避免某些 Supabase 实例的字段约束冲突
+    // 强制执行 Upsert 并检查返回的详细错误
+    const { error } = await supabase
+      .from('configs')
+      .upsert({ 
+        id: 'current', 
+        scoring_config: newScoring, 
+        site_config: newSite
+      }, { onConflict: 'id' });
     
-    if (error) throw error;
+    if (error) {
+      console.error('Supabase Upsert Error:', error);
+      throw new Error(error.message || '数据库写入权限被拒绝 (RLS Policy)');
+    }
+    
+    // 更新本地状态
     setConfig(newScoring);
     setSiteConfig(newSite);
   };
