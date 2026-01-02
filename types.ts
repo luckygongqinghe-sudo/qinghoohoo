@@ -95,6 +95,14 @@ export interface ScoringConfig {
   thresholds: RiskThreshold[];
 }
 
+export interface AiInference {
+  reasoning: string;
+  fusionScore: number;
+  anomalies: string[];
+  suggestedAction: string;
+  confidence: number;
+}
+
 export interface Case {
   id: string;
   timestamp: number;
@@ -116,7 +124,8 @@ export interface Case {
   riskLevel: string;
   suggestion: string;
   creatorId: string;
-  creatorName: string; 
+  creatorName: string;
+  aiInference?: AiInference;
 }
 
 export interface AppState {
