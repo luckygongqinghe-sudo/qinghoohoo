@@ -24,7 +24,8 @@ import {
   ShieldCheck,
   AlertCircle,
   Users,
-  SearchCode
+  SearchCode,
+  ExternalLink
 } from 'lucide-react';
 
 const CaseInputPage: React.FC = () => {
@@ -42,7 +43,7 @@ const CaseInputPage: React.FC = () => {
     weight: '',
     history: [] as string[],
     symptoms: [] as string[],
-    exposure: Object.keys(config.exposure)[0] || '无接触史',
+    exposure: '无接触史',
     ctFeature: '',
     qft: '阴性',
     smear: '阴性',
@@ -116,8 +117,7 @@ const CaseInputPage: React.FC = () => {
 
     if (isPathogenPositive) {
       finalLevel = '确诊结核病';
-      finalSuggestion = config.thresholds.find(t => t.level === '确诊结核病')?.suggestion || '检测到阳性病原学结果，请立即启动规范化治疗。';
-      if (score < 100) score = 100; 
+      finalSuggestion = config.thresholds.find(t => t.level === '确诊结核病')?.suggestion || '病原学阳性，请立即启动规范化治疗。';
     } else {
       const thresholdsSorted = [...config.thresholds]
         .filter(t => t.level !== '确诊结核病')
@@ -129,7 +129,7 @@ const CaseInputPage: React.FC = () => {
         finalSuggestion = match.suggestion;
       } else if (score >= 100) {
         finalLevel = '极高危风险';
-        finalSuggestion = '临床总分极高，但病原学阴性。需立即复查病原学，严禁在无证据时判定确诊。';
+        finalSuggestion = '临床总分极高，但病原学阴性。严禁直接确诊，需进一步进行病理或分子诊断。';
       } else {
         finalLevel = '无风险';
         finalSuggestion = '维持常规监测。';
@@ -145,34 +145,39 @@ const CaseInputPage: React.FC = () => {
     setIsAiProcessing(true);
 
     try {
-      // 修复：在浏览器中直接调用 API，不再提示设置 Key
+      // 修复核心：检查并触发 API Key 选择对话框
+      if (!(await (window as any).aistudio.hasSelectedApiKey())) {
+        await (window as any).aistudio.openSelectKey();
+        // 按照指令，触发后视为成功并继续
+      }
+
+      // 修复核心：在调用前即时实例化 GoogleGenAI
       const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
       
       const prompt = `
-        你是一个基于神经网络与专家知识协同架构 (Neural-Expert Synergy v2.0) 的结核病专家分析引擎。
+        你是一个基于神经网络与专家知识协同架构 (Neural-Expert Synergy v2.0) 的结核病专家。
         
-        【临床数据矩阵】
-        - 基础资料: ${formData.gender}, ${formData.age}岁, BMI ${bmi}
-        - 临床核心表现: ${formData.symptoms.join(', ') || '未监测到显著症状'}
-        - 流行病学风险接触史: ${formData.exposure}
-        - 既往背景/病史: ${formData.history.join(', ') || '无特定背景'}
-        - 胸部 CT 影像学特征: ${formData.ctFeature || '暂无特征记录'}
-        - 实验室检测结果: QFT(${formData.qft}), 痰涂片(${formData.smear}), 痰培养(${formData.culture})
-        - 当前专家规则评分: ${totalScore}
-        - 系统初步判定: ${risk.level}
+        【临床输入矩阵】
+        - 基础体征: ${formData.gender}, ${formData.age}岁, BMI ${bmi}
+        - 临床症状: ${formData.symptoms.join(', ') || '未见典型症状'}
+        - 流行病风险接触: ${formData.exposure}
+        - 影像表现(CT): ${formData.ctFeature || '无特定描述'}
+        - 实验室检查: QFT(${formData.qft}), 痰涂片(${formData.smear}), 痰培养(${formData.culture})
+        - 当前专家系统总分: ${totalScore}
+        - 风险预判: ${risk.level}
         
-        【判定约束】
-        1. 确诊底线：病原学（涂片/培养）阴性时，绝不可判定为“确诊”，fusionScore 必须控制在 100 以下。
-        2. 协同重点：结合影像特征与接触史，判断是否存在隐匿性感染风险。
+        【判定硬约束】
+        1. 确诊底线：若痰涂片和痰培养均为“阴性”，绝对不可在建议中给出“确诊”结论，fusionScore 不得超过 100。
+        2. 影像分析：重点评估影像特征与流行病学接触史的匹配程度。
 
-        【输出格式】
-        必须返回纯 JSON 对象：
+        【输出规范】
+        必须返回 JSON 格式：
         {
-          "reasoning": "中文深度医学逻辑推导报告",
+          "reasoning": "中文深度医学推导报告",
           "fusionScore": 0-150之间的整数,
-          "anomalies": ["发现的异常信号"],
+          "anomalies": ["识别到的非典型表现"],
           "suggestedAction": "临床处置建议",
-          "confidence": 0-1之间的浮点数
+          "confidence": 0-1之间的置信度
         }
       `;
 
@@ -186,7 +191,7 @@ const CaseInputPage: React.FC = () => {
       });
 
       const responseText = response.text;
-      if (!responseText) throw new Error("协同引擎响应数据为空");
+      if (!responseText) throw new Error("协同引擎响应为空");
 
       let cleanJson = responseText.trim();
       if (cleanJson.includes('```')) {
@@ -196,8 +201,14 @@ const CaseInputPage: React.FC = () => {
       const result = JSON.parse(cleanJson);
       setAiResult(result);
     } catch (err: any) {
-      console.error("AI Synergy Detail Error:", err);
-      setAiError(`协同推理服务异常: ${err.message || '未知通信错误'}`);
+      console.error("AI Synergy Error:", err);
+      // 如果报错是因为密钥不存在或过期
+      if (err.message?.includes("Requested entity was not found")) {
+        setAiError("API 密钥校验失败，请重新选择并点击启动。");
+        await (window as any).aistudio.openSelectKey();
+      } else {
+        setAiError(`协同推理服务异常: ${err.message || '未知通信错误'}`);
+      }
     } finally {
       setIsAiProcessing(false);
     }
@@ -272,12 +283,12 @@ const CaseInputPage: React.FC = () => {
             {editId ? '编辑诊断档案' : siteConfig.inputPageTitle}
           </h1>
           <p className="text-slate-500 dark:text-slate-400 font-bold mt-0.5 text-sm italic">
-             {editId ? `病例 ID: ${editId}` : siteConfig.inputPageDesc}
+             {editId ? `病例识别码: ${editId}` : siteConfig.inputPageDesc}
           </p>
         </div>
         {editId && (
           <button onClick={() => navigate('/dashboard/summary')} className="flex items-center gap-2 px-6 py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl font-black text-sm transition-all hover:bg-slate-50 shadow-sm">
-            <ArrowLeft size={16} /> 返回数据透视中心
+            <ArrowLeft size={16} /> 返回透视中心
           </button>
         )}
       </div>
@@ -294,7 +305,7 @@ const CaseInputPage: React.FC = () => {
               </h3>
               <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                 <div>
-                  <InputLabel label="患者姓名" />
+                  <InputLabel label="受检者姓名" />
                   <input required value={formData.name} onChange={e => setFormData({...formData, name: e.target.value})} className="w-full px-5 py-4 rounded-xl bg-slate-50 dark:bg-slate-800 border-none font-black text-slate-950 dark:text-white shadow-inner outline-none focus:ring-1 focus:ring-emerald-500" placeholder="姓名"/>
                 </div>
                 <div>
@@ -326,7 +337,7 @@ const CaseInputPage: React.FC = () => {
               </div>
             </section>
 
-            {/* 2. 影像表现与风险接触 (核心修复板块) */}
+            {/* 2. 修复：影像表现与风险接触 */}
             <section className="space-y-6">
               <h3 className="text-lg font-black text-slate-950 dark:text-white flex items-center gap-3 uppercase tracking-tighter">
                 <div className="w-1.5 h-6 bg-amber-500 rounded-full" />
@@ -335,7 +346,7 @@ const CaseInputPage: React.FC = () => {
               <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
                 <div className="space-y-4">
                   <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2">
-                    <Users size={14} className="text-amber-600" /> 流行病学风险接触
+                    <Users size={14} className="text-amber-600" /> 流行病学风险接触史
                   </label>
                   <div className="grid grid-cols-1 gap-2">
                     {Object.keys(config.exposure).map(exp => (
@@ -372,12 +383,12 @@ const CaseInputPage: React.FC = () => {
             <section className="space-y-6">
               <h3 className="text-lg font-black text-slate-950 dark:text-white flex items-center gap-3 uppercase tracking-tighter">
                 <div className="w-1.5 h-6 bg-blue-600 rounded-full" />
-                核心临床表现与病史
+                临床症状与既往史
               </h3>
               <div className="space-y-8">
                 <div>
                   <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-4 flex items-center gap-2">
-                    <Thermometer size={14} /> 典型呼吸道/全身症状 (多选)
+                    <Thermometer size={14} /> 典型呼吸道/全身表现 (多选)
                   </label>
                   <div className="flex flex-wrap gap-2.5">
                     {Object.keys(config.symptoms).map(item => (
@@ -392,7 +403,7 @@ const CaseInputPage: React.FC = () => {
                   </div>
                 </div>
                 <div>
-                  <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-4">高危背景/既往病史 (多选)</label>
+                  <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-4">高危背景/既往病史</label>
                   <div className="flex flex-wrap gap-2.5">
                     {Object.keys(config.history).map(item => (
                       <button 
@@ -412,12 +423,12 @@ const CaseInputPage: React.FC = () => {
             <section className="space-y-6 bg-slate-50 dark:bg-slate-800/40 p-8 rounded-3xl border border-slate-100 dark:border-slate-800">
               <h3 className="text-lg font-black text-slate-950 dark:text-white flex items-center gap-3 uppercase tracking-tighter">
                 <div className="w-1.5 h-6 bg-rose-600 rounded-full" />
-                实验室检测矩阵 (确诊硬指标)
+                实验室病原学检测 (确诊依据)
               </h3>
               <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
                 <div className="space-y-4">
                   <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2">
-                    <SearchCode size={14} className="text-indigo-600" /> QFT 实验结果
+                    <SearchCode size={14} className="text-indigo-600" /> QFT 实验
                   </label>
                   <div className="grid grid-cols-1 gap-1.5">
                     {Object.keys(config.qft).map(res => (
@@ -448,19 +459,17 @@ const CaseInputPage: React.FC = () => {
               </div>
             </section>
 
-            <button type="submit" form="screening-form" disabled={submitted} className={`w-full py-6 rounded-2xl font-black text-xl text-white transition-all shadow-xl flex items-center justify-center gap-3 active:scale-[0.98] ${submitted ? 'bg-emerald-600' : 'bg-slate-950 dark:bg-emerald-600 hover:scale-[1.01]'}`}>
-              {submitted ? ( <><CheckCircle2 /> 评估报告已归档</> ) : editId ? ( <><Edit3 size={18}/> 更新档案信息</> ) : ( <><ChevronRight /> 提交临床评估</> )}
+            <button type="submit" form="screening-form" disabled={submitted} className={`w-full py-6 rounded-2xl font-black text-xl text-white transition-all shadow-xl flex items-center justify-center gap-3 active:scale-[0.98] ${submitted ? 'bg-emerald-600' : 'bg-slate-950 dark:bg-emerald-600 hover:scale-101'}`}>
+              {submitted ? ( <><CheckCircle2 /> 评估报告已归档</> ) : editId ? ( <><Edit3 size={18}/> 更新档案信息</> ) : ( <><ChevronRight /> 提交评估并计算分级</> )}
             </button>
           </form>
         </div>
 
         {/* 侧栏分析卡片 */}
         <div className="space-y-6">
-          
-          {/* 指南评分卡片 */}
           <div className="bg-white dark:bg-slate-900 rounded-[2.5rem] p-8 border border-slate-100 dark:border-slate-800 shadow-2xl flex flex-col items-center">
             <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] mb-10 flex items-center gap-2">
-              <Calculator size={16} className="text-emerald-600" /> 指南路径总评分
+              <Calculator size={16} className="text-emerald-600" /> 临床路径评估分
             </h3>
             <div className="mb-10 text-center">
               <div className="text-8xl font-black text-slate-950 dark:text-emerald-500 tracking-tighter">{totalScore}</div>
@@ -490,7 +499,6 @@ const CaseInputPage: React.FC = () => {
             </div>
           </div>
 
-          {/* AI 深度协同卡片 */}
           <div className="bg-slate-950 rounded-[2.5rem] p-8 shadow-2xl flex flex-col border border-white/5">
             <div className="w-full flex items-center justify-between mb-8">
               <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] flex items-center gap-2">
@@ -506,26 +514,37 @@ const CaseInputPage: React.FC = () => {
                 <textarea 
                   value={rawNotes}
                   onChange={e => setRawNotes(e.target.value)}
-                  placeholder="在此输入 CT 报告细节、复杂接触背景或免疫评估结果，点击启动深度推理融合..."
+                  placeholder="在此输入补充临床线索（如 CT 报告细节、具体接触背景等），点击启动深度 AI 推理融合..."
                   className="w-full h-32 bg-white/5 border border-white/10 rounded-2xl p-5 text-[13px] font-bold text-white placeholder:text-slate-700 focus:ring-1 focus:ring-indigo-500 outline-none transition-all resize-none leading-relaxed"
                 />
                 <Terminal size={14} className="absolute bottom-4 right-4 text-slate-800 pointer-events-none" />
+              </div>
+
+              <div className="p-4 bg-indigo-500/5 rounded-2xl border border-indigo-500/10">
+                <div className="flex items-center gap-2 text-indigo-400 mb-2">
+                  <ShieldCheck size={14} />
+                  <span className="text-[9px] font-black uppercase tracking-widest">安全与计费说明</span>
+                </div>
+                <p className="text-[10px] text-slate-500 leading-relaxed font-bold">
+                  启动 AI 前，您需要确保已在对话框中选择了有效的付费 API 密钥。 
+                  <a href="https://ai.google.dev/gemini-api/docs/billing" target="_blank" className="text-indigo-400 hover:underline inline-flex items-center ml-1">计费文档 <ExternalLink size={8} className="ml-0.5" /></a>
+                </p>
               </div>
 
               <button 
                 type="button"
                 onClick={runAiSynergy}
                 disabled={isAiProcessing}
-                className={`w-full py-5 rounded-2xl font-black text-xs uppercase tracking-widest flex items-center justify-center gap-3 transition-all active:scale-[0.98] ${isAiProcessing ? 'bg-slate-800 text-slate-500' : 'bg-indigo-600 text-white hover:bg-indigo-50 shadow-xl shadow-indigo-600/20'}`}
+                className={`w-full py-5 rounded-2xl font-black text-xs uppercase tracking-widest flex items-center justify-center gap-3 transition-all active:scale-[0.98] ${isAiProcessing ? 'bg-slate-800 text-slate-500' : 'bg-indigo-600 text-white hover:bg-indigo-50 hover:text-indigo-600 shadow-xl shadow-indigo-600/20'}`}
               >
                 {isAiProcessing ? <Loader2 size={16} className="animate-spin" /> : <Sparkles size={16} />}
-                {isAiProcessing ? '推理融合中...' : '启动 AI 协同推理'}
+                {isAiProcessing ? '推理分析中...' : '启动 AI 协同推理'}
               </button>
 
               {aiError && (
                 <div className="p-4 bg-rose-500/10 border border-rose-500/20 rounded-2xl flex items-start gap-3 text-rose-400 animate-in fade-in slide-in-from-top-2">
                   <AlertCircle size={18} className="shrink-0 mt-0.5" />
-                  <div className="text-xs font-bold leading-relaxed">{aiError}</div>
+                  <div className="text-xs font-bold">{aiError}</div>
                 </div>
               )}
 
@@ -537,7 +556,7 @@ const CaseInputPage: React.FC = () => {
                       <span className="text-3xl font-black text-indigo-400 tracking-tighter">{aiResult.fusionScore}</span>
                     </div>
                     <div className="flex flex-col items-end">
-                      <span className="text-[8px] font-black text-slate-500 uppercase tracking-widest">推断置信度</span>
+                      <span className="text-[8px] font-black text-slate-500 uppercase tracking-widest">置信评级</span>
                       <span className="text-lg font-black text-emerald-400 leading-none">{(aiResult.confidence * 100).toFixed(1)}%</span>
                     </div>
                   </div>
@@ -553,7 +572,7 @@ const CaseInputPage: React.FC = () => {
                   <div className="bg-emerald-500/10 rounded-2xl p-5 border border-emerald-500/20">
                     <div className="flex items-center gap-2 mb-3">
                       <Activity size={14} className="text-emerald-400" />
-                      <span className="text-[9px] font-black text-emerald-400 uppercase tracking-widest">增强决策建议</span>
+                      <span className="text-[9px] font-black text-emerald-400 uppercase tracking-widest">专家建议</span>
                     </div>
                     <p className="text-[12px] leading-relaxed text-slate-200 font-bold">{aiResult.suggestedAction}</p>
                   </div>
