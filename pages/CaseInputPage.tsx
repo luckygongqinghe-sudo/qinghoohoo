@@ -63,7 +63,7 @@ const CaseInputPage: React.FC = () => {
   });
   const [submitted, setSubmitted] = useState(false);
 
-  // 仅在初始化或 editId 变化时加载数据，避免 Supabase 实时同步导致编辑中的数据被覆盖
+  // 初始化或编辑加载
   useEffect(() => {
     if (editId && isInitialLoad.current) {
       const existingCase = cases.find(c => c.id === editId);
@@ -91,6 +91,7 @@ const CaseInputPage: React.FC = () => {
     }
   }, [editId, cases]);
 
+  // 计算 BMI
   useEffect(() => {
     const h = parseFloat(formData.height) / 100;
     const w = parseFloat(formData.weight);
@@ -101,6 +102,7 @@ const CaseInputPage: React.FC = () => {
     }
   }, [formData.height, formData.weight]);
 
+  // 严谨的风险分级计算 (核心修改点：病原学阳性作为确诊硬门槛)
   useEffect(() => {
     let score = 0;
     (formData.history || []).forEach(h => score += config.history[h] || 0);
@@ -113,19 +115,33 @@ const CaseInputPage: React.FC = () => {
 
     const isPathogenPositive = formData.smear === '阳性' || formData.culture === '阳性';
     
-    let finalLevel = '未定义';
-    let finalSuggestion = '当前分值未匹配到建议。';
+    let finalLevel = '计算中...';
+    let finalSuggestion = '';
 
     if (isPathogenPositive) {
-      const confThreshold = config.thresholds.find(t => t.level.includes('确诊'));
-      finalLevel = confThreshold?.level || '确诊结核病';
-      finalSuggestion = confThreshold?.suggestion || '检测到阳性病原学结果，依据指南立即启动治疗。';
+      // 病原学阳性：确诊
+      finalLevel = '确诊结核病';
+      finalSuggestion = config.thresholds.find(t => t.level === '确诊结核病')?.suggestion || '检测到阳性病原学结果，请立即依据指南启动规范化治疗。';
       if (score < 100) score = 100; 
     } else {
-      const matchingThreshold = config.thresholds.find(t => score >= t.min && score <= t.max);
-      if (matchingThreshold) {
-        finalLevel = matchingThreshold.level;
-        finalSuggestion = matchingThreshold.suggestion;
+      // 病原学阴性：即使分值超过 100，也强制限制在“极高危风险”
+      // 过滤掉“确诊”等级进行匹配
+      const nonConfirmedThresholds = [...config.thresholds]
+        .filter(t => t.level !== '确诊结核病')
+        .sort((a, b) => b.min - a.min); // 从高到低排序
+
+      const match = nonConfirmedThresholds.find(t => score >= t.min);
+      
+      if (match) {
+        finalLevel = match.level;
+        finalSuggestion = match.suggestion;
+      } else if (score >= 100) {
+        // 分值很高但无证据
+        finalLevel = '极高危风险';
+        finalSuggestion = '临床总分极高（已超过确诊线），但病原学检测目前为阴性。需立即复查病原学或行内镜下采样，严禁直接判定确诊。';
+      } else {
+        finalLevel = '无风险';
+        finalSuggestion = '维持常规监测。';
       }
     }
 
@@ -133,22 +149,19 @@ const CaseInputPage: React.FC = () => {
     setRisk({ level: finalLevel, suggestion: finalSuggestion });
   }, [formData, config]);
 
-  const handleOpenKeyDialog = async () => {
-    try {
-      if (window.aistudio && typeof window.aistudio.openSelectKey === 'function') {
-        await window.aistudio.openSelectKey();
-        setNeedsApiKey(false);
-      }
-    } catch (e) {
-      console.error("Failed to open key dialog", e);
+  const handleSelectKey = async () => {
+    if (window.aistudio && typeof window.aistudio.openSelectKey === 'function') {
+      await window.aistudio.openSelectKey();
+      setNeedsApiKey(false);
+      setAiError(null);
     }
   };
 
   const runAiSynergy = async () => {
-    setIsAiProcessing(true);
     setAiError(null);
-    
-    // 检查 API Key 状态
+    setIsAiProcessing(true);
+
+    // 1. 检查 API Key 授权状态
     if (window.aistudio && typeof window.aistudio.hasSelectedApiKey === 'function') {
       const hasKey = await window.aistudio.hasSelectedApiKey();
       if (!hasKey) {
@@ -159,70 +172,75 @@ const CaseInputPage: React.FC = () => {
     }
 
     try {
+      // 2. 实时实例化 AI Client (必须使用最新的 process.env.API_KEY)
       const apiKey = process.env.API_KEY;
-      if (!apiKey) throw new Error("系统未检测到有效的 API Key，请点击授权。");
+      if (!apiKey) {
+        setNeedsApiKey(true);
+        throw new Error("API Key 未检测到，请点击授权。");
+      }
 
       const ai = new GoogleGenAI({ apiKey });
-      const promptText = `
-        你是一个结核病 (TB) 领域的资深医学 AI 专家。请对以下患者数据进行 Neural-Expert 协同决策分析。
+      
+      // 构建专业医学提示词
+      const prompt = `
+        你是一个基于神经网络与专家知识协同架构 (Neural-Expert Synergy v2.0) 的结核病专家。
         
-        【临床核心指标】
-        - 患者概况: 性别 ${formData.gender}, 年龄 ${formData.age}, BMI ${bmi}
-        - 临床表现: ${formData.symptoms.join(', ') || '未见典型症状'}
-        - 既往高危史: ${formData.history.join(', ') || '无'}
-        - 影像学(CT)表现: ${formData.ctFeature || '无显著特征'}
-        - 流行病学接触史: ${formData.exposure}
-        - 实验室矩阵: QFT实验(${formData.qft}), 痰涂片(${formData.smear}), 痰培养(${formData.culture})
-        - 临床指南基准分值: ${totalScore} 分
+        【患者特征矩阵】
+        - 基础: ${formData.gender}, ${formData.age}岁, BMI ${bmi}
+        - 临床症状: ${formData.symptoms.join(', ') || '无'}
+        - 影像(CT): ${formData.ctFeature || '无描述'}
+        - 实验室检查: QFT实验(${formData.qft}), 痰涂片(${formData.smear}), 痰培养(${formData.culture})
+        - 原始分值: ${totalScore}
+        - 当前风险阶梯: ${risk.level}
         
-        【非结构化补充记录】
-        "${rawNotes || '无补充信息'}"
+        【非结构化病历记录】
+        "${rawNotes || '未提供补充信息'}"
 
-        【任务要求】
-        1. 深度推理：分析各项指标间的相互关联及非典型性表现。
-        2. 决策融合：在指南分值基础上，结合临床模式识别给出融合评分。
-        3. 给出建议：提供具体的、可执行的临床后续步骤。
+        【判定约束】
+        1. 确诊唯一性：除非痰涂片或痰培养为“阳性”，否则禁止在 fusionScore 中给出 100 分以上。
+        2. 推理重点：分析 CT 表现与症状的协同风险，识别非典型性结核特征。
 
-        【输出格式】
-        必须且只能返回纯 JSON，不含任何 Markdown 标识符，字段如下：
+        【输出规范】
+        必须返回纯 JSON 格式：
         {
-          "reasoning": "中文深度推导过程",
+          "reasoning": "中文深度医学推导报告",
           "fusionScore": 0-150之间的整数,
-          "anomalies": ["发现的临床异常点或矛盾点"],
-          "suggestedAction": "具体的临床处置方案",
-          "confidence": 0-1之间的置信度
+          "anomalies": ["发现的临床冲突点或矛盾点"],
+          "suggestedAction": "下一步临床处置建议",
+          "confidence": 0-1之间的浮点数
         }
       `;
 
       const response = await ai.models.generateContent({
         model: 'gemini-3-pro-preview',
-        contents: promptText, // 简化为字符串以提高稳定性
+        contents: prompt,
         config: { 
           responseMimeType: "application/json",
-          thinkingConfig: { thinkingBudget: 24000 }
+          thinkingConfig: { thinkingBudget: 32000 }
         }
       });
 
       const responseText = response.text;
-      if (!responseText) throw new Error("模型响应解析失败：返回内容为空。");
+      if (!responseText) throw new Error("协同引擎响应为空");
 
-      // 鲁棒的 JSON 提取逻辑
+      // 提取 JSON
       let cleanJson = responseText.trim();
-      if (cleanJson.startsWith('```')) {
-        cleanJson = cleanJson.replace(/^```[a-z]*\n/i, "").replace(/\n```$/, "").trim();
+      if (cleanJson.includes('```')) {
+        cleanJson = cleanJson.replace(/```[a-z]*\n/i, "").replace(/\n```/g, "").trim();
       }
       
       const result = JSON.parse(cleanJson);
-      if (typeof result.fusionScore !== 'number') throw new Error("决策分值格式错误。");
-      
       setAiResult(result);
     } catch (err: any) {
-      console.error("AI Synergy Fusion Error:", err);
-      // 处理特定的 API Key 错误
-      if (err.message && err.message.includes("entity was not found")) {
+      console.error("AI Synergy Error:", err);
+      
+      // 处理特定的“未找到”或“无效”Key 错误
+      if (err.message && (err.message.includes("not found") || err.message.includes("404"))) {
         setNeedsApiKey(true);
+        setAiError("API Key 权限已过期或未激活，请重新选取。");
+      } else {
+        setAiError(err.message || "协同推理引擎连接超时。");
       }
-      setAiError(err.message || "协同推理引擎连接超时或解析异常。");
     } finally {
       setIsAiProcessing(false);
     }
@@ -239,9 +257,18 @@ const CaseInputPage: React.FC = () => {
     e.preventDefault();
     if (!currentUser) return;
 
+    // 最终存储逻辑：二次确认确诊标准
     const finalScore = aiResult?.fusionScore ?? totalScore;
-    const matchingThreshold = config.thresholds.find(t => finalScore >= t.min && finalScore <= t.max) || 
-      config.thresholds[config.thresholds.length - 1];
+    const isPathogenPositive = formData.smear === '阳性' || formData.culture === '阳性';
+    
+    let finalRiskLevel = risk.level;
+    if (isPathogenPositive) {
+      finalRiskLevel = '确诊结核病';
+    } else {
+      // 重新从配置中查找
+      const match = config.thresholds.find(t => finalScore >= t.min && finalScore <= t.max && t.level !== '确诊结核病');
+      finalRiskLevel = match ? match.level : (finalScore >= 100 ? '极高危风险' : risk.level);
+    }
 
     const caseData: Case = {
       id: editId || Date.now().toString(),
@@ -261,8 +288,8 @@ const CaseInputPage: React.FC = () => {
       smearResult: formData.smear,
       cultureResult: formData.culture,
       totalScore: finalScore,
-      riskLevel: matchingThreshold.level,
-      suggestion: aiResult?.suggestedAction || matchingThreshold.suggestion,
+      riskLevel: finalRiskLevel,
+      suggestion: aiResult?.suggestedAction || risk.suggestion,
       creatorId: editId ? (cases.find(c => c.id === editId)?.creatorId || currentUser.id) : currentUser.id,
       creatorName: editId ? (cases.find(c => c.id === editId)?.creatorName || currentUser.username) : currentUser.username,
       aiInference: aiResult || undefined
@@ -303,6 +330,7 @@ const CaseInputPage: React.FC = () => {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <div className="lg:col-span-2 space-y-6">
           <form id="screening-form" onSubmit={handleSubmit} className="bg-white dark:bg-slate-900 rounded-[2.5rem] p-8 md:p-10 border border-slate-100 dark:border-slate-800 shadow-xl space-y-10">
+            {/* 患者体征 */}
             <section className="space-y-6">
               <h3 className="text-lg font-black text-slate-950 dark:text-white flex items-center gap-3 uppercase tracking-tighter">
                 <div className="w-1.5 h-6 bg-emerald-600 rounded-full" />
@@ -342,6 +370,7 @@ const CaseInputPage: React.FC = () => {
               </div>
             </section>
 
+            {/* 临床症状 */}
             <section className="space-y-6">
               <h3 className="text-lg font-black text-slate-950 dark:text-white flex items-center gap-3 uppercase tracking-tighter">
                 <div className="w-1.5 h-6 bg-blue-600 rounded-full" />
@@ -381,48 +410,11 @@ const CaseInputPage: React.FC = () => {
               </div>
             </section>
 
-            <section className="space-y-6">
-              <h3 className="text-lg font-black text-slate-950 dark:text-white flex items-center gap-3 uppercase tracking-tighter">
-                <div className="w-1.5 h-6 bg-amber-500 rounded-full" />
-                影像表现与风险接触
-              </h3>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <div>
-                  <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3 flex items-center gap-2">
-                    <Zap size={14} className="text-amber-500" /> 流行病学接触史
-                  </label>
-                  <select 
-                    value={formData.exposure} 
-                    onChange={e => setFormData({...formData, exposure: e.target.value})}
-                    className="w-full px-5 py-3.5 rounded-xl bg-slate-50 dark:bg-slate-800 border-none text-slate-900 dark:text-white font-black text-sm outline-none shadow-inner cursor-pointer"
-                  >
-                    {Object.keys(config.exposure).map(exp => (
-                      <option key={exp} value={exp}>{exp} (+{config.exposure[exp]})</option>
-                    ))}
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3 flex items-center gap-2">
-                    <Eye size={14} className="text-blue-500" /> 胸部 CT 影像特征
-                  </label>
-                  <select 
-                    value={formData.ctFeature} 
-                    onChange={e => setFormData({...formData, ctFeature: e.target.value})}
-                    className="w-full px-5 py-3.5 rounded-xl bg-slate-50 dark:bg-slate-800 border-none text-slate-900 dark:text-white font-black text-sm outline-none shadow-inner cursor-pointer"
-                  >
-                    <option value="">请选择主要影像学改变...</option>
-                    {Object.keys(config.ctFeatures).map(feat => (
-                      <option key={feat} value={feat}>{feat} (+{config.ctFeatures[feat]})</option>
-                    ))}
-                  </select>
-                </div>
-              </div>
-            </section>
-
+            {/* 影像与病原学矩阵 (关键风险区) */}
             <section className="space-y-6 bg-slate-50 dark:bg-slate-800/40 p-6 rounded-3xl border border-slate-100 dark:border-slate-800">
               <h3 className="text-lg font-black text-slate-950 dark:text-white flex items-center gap-3 uppercase tracking-tighter">
                 <div className="w-1.5 h-6 bg-rose-600 rounded-full" />
-                实验室检测结果
+                实验室病原学检测 (确诊依据)
               </h3>
               <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                 <div className="space-y-4">
@@ -431,27 +423,27 @@ const CaseInputPage: React.FC = () => {
                   </label>
                   <div className="grid grid-cols-1 gap-1.5">
                     {Object.keys(config.qft).map(res => (
-                      <button key={res} type="button" onClick={() => setFormData({...formData, qft: res})} className={`px-4 py-2.5 rounded-xl border transition-all text-[11px] font-black ${formData.qft === res ? 'bg-indigo-50 dark:bg-indigo-900/30 border-indigo-600 text-indigo-700 dark:text-indigo-400' : 'bg-white dark:bg-slate-800 border-slate-100 dark:border-slate-700 text-slate-400'}`}>{res}</button>
+                      <button key={res} type="button" onClick={() => setFormData({...formData, qft: res})} className={`px-4 py-2.5 rounded-xl border transition-all text-[11px] font-black ${formData.qft === res ? 'bg-indigo-50 dark:bg-indigo-900/30 border-indigo-600 text-indigo-700 dark:text-indigo-400 shadow-sm' : 'bg-white dark:bg-slate-800 border-slate-100 dark:border-slate-700 text-slate-400'}`}>{res}</button>
                     ))}
                   </div>
                 </div>
                 <div className="space-y-4">
                   <label className="block text-[10px] font-black text-rose-500 uppercase tracking-widest flex items-center gap-2">
-                    <AlertTriangle size={14} /> 痰涂片结果
+                    <AlertTriangle size={14} /> 痰涂片结果 (阳性=确诊)
                   </label>
                   <div className="grid grid-cols-1 gap-1.5">
                     {Object.keys(config.smear).map(res => (
-                      <button key={res} type="button" onClick={() => setFormData({...formData, smear: res})} className={`px-4 py-2.5 rounded-xl border transition-all text-[11px] font-black ${formData.smear === res ? 'bg-rose-50 dark:bg-rose-900/30 border-rose-600 text-rose-700 dark:text-rose-400' : 'bg-white dark:bg-slate-800 border-slate-100 dark:border-slate-700 text-slate-400'}`}>{res}</button>
+                      <button key={res} type="button" onClick={() => setFormData({...formData, smear: res})} className={`px-4 py-2.5 rounded-xl border transition-all text-[11px] font-black ${formData.smear === res ? 'bg-rose-50 dark:bg-rose-900/30 border-rose-600 text-rose-700 dark:text-rose-400 shadow-lg ring-1 ring-rose-500' : 'bg-white dark:bg-slate-800 border-slate-100 dark:border-slate-700 text-slate-400'}`}>{res}</button>
                     ))}
                   </div>
                 </div>
                 <div className="space-y-4">
                   <label className="block text-[10px] font-black text-rose-500 uppercase tracking-widest flex items-center gap-2">
-                    <AlertTriangle size={14} /> 痰培养结果
+                    <AlertTriangle size={14} /> 痰培养结果 (阳性=确诊)
                   </label>
                   <div className="grid grid-cols-1 gap-1.5">
                     {Object.keys(config.culture).map(res => (
-                      <button key={res} type="button" onClick={() => setFormData({...formData, culture: res})} className={`px-4 py-2.5 rounded-xl border transition-all text-[11px] font-black ${formData.culture === res ? 'bg-rose-50 dark:bg-rose-900/30 border-rose-600 text-rose-700 dark:text-rose-400' : 'bg-white dark:bg-slate-800 border-slate-100 dark:border-slate-700 text-slate-400'}`}>{res}</button>
+                      <button key={res} type="button" onClick={() => setFormData({...formData, culture: res})} className={`px-4 py-2.5 rounded-xl border transition-all text-[11px] font-black ${formData.culture === res ? 'bg-rose-50 dark:bg-rose-900/30 border-rose-600 text-rose-700 dark:text-rose-400 shadow-lg ring-1 ring-rose-500' : 'bg-white dark:bg-slate-800 border-slate-100 dark:border-slate-700 text-slate-400'}`}>{res}</button>
                     ))}
                   </div>
                 </div>
@@ -459,15 +451,16 @@ const CaseInputPage: React.FC = () => {
             </section>
 
             <button type="submit" form="screening-form" disabled={submitted} className={`w-full py-5 rounded-2xl font-black text-lg text-white transition-all shadow-xl flex items-center justify-center gap-3 active:scale-[0.98] ${submitted ? 'bg-emerald-600' : 'bg-slate-950 dark:bg-emerald-600 hover:scale-[1.01]'}`}>
-              {submitted ? ( <><CheckCircle2 /> 报告已归档并同步分析</> ) : editId ? ( <><Edit3 size={18}/> 更新评估档案</> ) : ( <><ChevronRight /> 提交评估报告</> )}
+              {submitted ? ( <><CheckCircle2 /> 报告已同步至云端</> ) : editId ? ( <><Edit3 size={18}/> 更新评估档案</> ) : ( <><ChevronRight /> 提交评估报告</> )}
             </button>
           </form>
         </div>
 
+        {/* 侧边实时分析 */}
         <div className="space-y-6">
           <div className="bg-white dark:bg-slate-900 rounded-[2.5rem] p-8 border border-slate-100 dark:border-slate-800 shadow-2xl flex flex-col items-center">
             <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] mb-10 flex items-center gap-2">
-              <Calculator size={16} className="text-emerald-600" /> 标准专家路径评分
+              <Calculator size={16} className="text-emerald-600" /> 指南路径评分
             </h3>
             <div className="mb-10 text-center">
               <div className="text-8xl font-black text-slate-950 dark:text-emerald-500 tracking-tighter">{totalScore}</div>
@@ -476,8 +469,8 @@ const CaseInputPage: React.FC = () => {
             <div className="w-full space-y-8">
               <div>
                 <div className="flex justify-between items-end mb-3">
-                  <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">专家风险等级</span>
-                  <span className={`font-black px-4 py-1.5 rounded-full text-[10px] uppercase border-2 ${risk.level === '确诊结核病' ? 'bg-rose-600 border-rose-600 text-white shadow-lg shadow-rose-200' : 'bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white border-slate-100 dark:border-slate-700'}`}>
+                  <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">系统风险等级</span>
+                  <span className={`font-black px-4 py-1.5 rounded-full text-[10px] uppercase border-2 ${risk.level === '确诊结核病' ? 'bg-rose-600 border-rose-600 text-white shadow-lg' : 'bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white border-slate-100 dark:border-slate-700'}`}>
                     {risk.level}
                   </span>
                 </div>
@@ -497,10 +490,11 @@ const CaseInputPage: React.FC = () => {
             </div>
           </div>
 
+          {/* AI 推理模块 */}
           <div className="bg-slate-950 rounded-[2.5rem] p-8 shadow-2xl flex flex-col border border-white/5">
             <div className="w-full flex items-center justify-between mb-8">
               <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] flex items-center gap-2">
-                <BrainCircuit size={16} className="text-indigo-400" /> Neural-Expert Synergy (AI)
+                <BrainCircuit size={16} className="text-indigo-400" /> Neural-Expert Synergy
               </h3>
               <div className="flex items-center gap-2 px-3 py-1 bg-indigo-500/10 rounded-full border border-indigo-500/20">
                 <span className="text-[8px] font-black text-indigo-400 uppercase tracking-widest">Gemini 3 Pro</span>
@@ -512,7 +506,7 @@ const CaseInputPage: React.FC = () => {
                 <textarea 
                   value={rawNotes}
                   onChange={e => setRawNotes(e.target.value)}
-                  placeholder="在此输入补充病历记录、不典型表现或既往复杂病史，激活深度协同决策引擎进行特征融合分析..."
+                  placeholder="在此输入补充记录（如 CT 具体表现、家族史等），点击下方按钮启动深度 AI 推理融合..."
                   className="w-full h-32 bg-white/5 border border-white/10 rounded-2xl p-4 text-[13px] font-bold text-white placeholder:text-slate-700 focus:ring-1 focus:ring-indigo-500 outline-none transition-all resize-none leading-relaxed"
                 />
                 <Terminal size={14} className="absolute bottom-4 right-4 text-slate-800 pointer-events-none" />
@@ -523,14 +517,11 @@ const CaseInputPage: React.FC = () => {
                   <div className="flex items-center gap-2 text-amber-400 font-black text-[10px] uppercase tracking-widest">
                     <Key size={14} /> 需 API KEY 授权
                   </div>
-                  <p className="text-xs text-slate-300 font-bold leading-relaxed">
-                    为了使用高性能推理模型，请先选择您的 API 密钥。系统不会存储您的私钥信息。
-                  </p>
                   <button 
-                    onClick={handleOpenKeyDialog}
-                    className="w-full py-2 bg-amber-600 text-white rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-amber-500 transition-all"
+                    onClick={handleSelectKey}
+                    className="w-full py-2 bg-amber-600 text-white rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-amber-500 transition-all shadow-lg"
                   >
-                    立即授权 API KEY
+                    立即选取 API KEY
                   </button>
                 </div>
               )}
@@ -556,8 +547,8 @@ const CaseInputPage: React.FC = () => {
                 <div className="space-y-6 animate-in fade-in slide-in-from-top-4 duration-700">
                   <div className="flex items-center justify-between border-t border-white/10 pt-6">
                     <div className="flex flex-col">
-                      <span className="text-[8px] font-black text-slate-500 uppercase tracking-widest">神经网络修正评分</span>
-                      <span className="text-3xl font-black text-indigo-400 leading-none tracking-tighter">{aiResult.fusionScore}</span>
+                      <span className="text-[8px] font-black text-slate-500 uppercase tracking-widest">神经网络修正分</span>
+                      <span className="text-3xl font-black text-indigo-400 tracking-tighter">{aiResult.fusionScore}</span>
                     </div>
                     <div className="flex flex-col items-end">
                       <span className="text-[8px] font-black text-slate-500 uppercase tracking-widest">决策置信度</span>
@@ -565,42 +556,20 @@ const CaseInputPage: React.FC = () => {
                     </div>
                   </div>
 
-                  <div className="space-y-5">
-                    <div className="bg-white/5 rounded-2xl p-5 border border-white/5">
-                      <div className="flex items-center gap-2 mb-3">
-                        <Zap size={14} className="text-indigo-400" />
-                        <span className="text-[9px] font-black text-indigo-400 uppercase tracking-widest">推理推导链报告</span>
-                      </div>
-                      <p className="text-[12px] leading-relaxed text-slate-300 font-bold italic">“{aiResult.reasoning}”</p>
+                  <div className="bg-white/5 rounded-2xl p-5 border border-white/5">
+                    <div className="flex items-center gap-2 mb-3">
+                      <Zap size={14} className="text-indigo-400" />
+                      <span className="text-[9px] font-black text-indigo-400 uppercase tracking-widest">推理推导链报告</span>
                     </div>
-
-                    {aiResult.anomalies && aiResult.anomalies.length > 0 && (
-                      <div className="space-y-2">
-                        <span className="text-[8px] font-black text-rose-500 uppercase tracking-widest flex items-center gap-1.5">
-                          <AlertTriangle size={12} /> 识别到的高危风险点
-                        </span>
-                        <div className="flex flex-wrap gap-1.5">
-                          {aiResult.anomalies.map((anom, i) => (
-                            <span key={i} className="px-2.5 py-1 bg-rose-500/10 border border-rose-500/20 rounded-lg text-[8px] font-black text-rose-400 uppercase tracking-tighter">
-                              {anom}
-                            </span>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-
-                    <div className="bg-emerald-500/10 rounded-2xl p-5 border border-emerald-500/20">
-                      <div className="flex items-center gap-2 mb-3">
-                        <Activity size={14} className="text-emerald-400" />
-                        <span className="text-[9px] font-black text-emerald-400 uppercase tracking-widest">协同增强建议</span>
-                      </div>
-                      <p className="text-[12px] leading-relaxed text-slate-200 font-bold">{aiResult.suggestedAction}</p>
-                    </div>
+                    <p className="text-[12px] leading-relaxed text-slate-300 font-bold italic">“{aiResult.reasoning}”</p>
                   </div>
 
-                  <div className="pt-4 border-t border-white/5 flex items-center justify-center gap-2">
-                     <ShieldCheck size={12} className="text-slate-600" />
-                     <span className="text-[8px] font-black text-slate-600 uppercase tracking-widest">AI 决策报告已就绪</span>
+                  <div className="bg-emerald-500/10 rounded-2xl p-5 border border-emerald-500/20">
+                    <div className="flex items-center gap-2 mb-3">
+                      <Activity size={14} className="text-emerald-400" />
+                      <span className="text-[9px] font-black text-emerald-400 uppercase tracking-widest">AI 增强建议</span>
+                    </div>
+                    <p className="text-[12px] leading-relaxed text-slate-200 font-bold">{aiResult.suggestedAction}</p>
                   </div>
                 </div>
               )}
