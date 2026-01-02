@@ -62,7 +62,6 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
           setSiteConfig({ ...DEFAULT_SITE_CONFIG, ...configRes.data.site_config });
         }
       } else {
-        // 初始化单例配置记录
         await supabase.from('configs').upsert({ 
           id: 'current', 
           scoring_config: DEFAULT_CONFIG, 
@@ -87,8 +86,8 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       .on('postgres_changes', { event: '*', schema: 'public', table: 'configs' }, (payload) => {
         const data = payload.new as any;
         if (data) {
-          if (data.scoring_config) setConfig(prev => ({ ...prev, ...data.scoring_config }));
-          if (data.site_config) setSiteConfig(prev => ({ ...prev, ...data.site_config }));
+          if (data.scoring_config) setConfig(data.scoring_config);
+          if (data.site_config) setSiteConfig(data.site_config);
         }
       })
       .on('postgres_changes', { event: '*', schema: 'public', table: 'users' }, () => fetchData())
@@ -151,8 +150,6 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   };
 
   const updateGlobalConfig = async (newScoring: ScoringConfig, newSite: SiteConfig) => {
-    // 移除手动赋值的 updated_at 以避免某些 Supabase 实例的字段约束冲突
-    // 强制执行 Upsert 并检查返回的详细错误
     const { error } = await supabase
       .from('configs')
       .upsert({ 
@@ -162,11 +159,10 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       }, { onConflict: 'id' });
     
     if (error) {
-      console.error('Supabase Upsert Error:', error);
-      throw new Error(error.message || '数据库写入权限被拒绝 (RLS Policy)');
+      console.error('Supabase Sync Error:', error);
+      throw new Error(error.message);
     }
     
-    // 更新本地状态
     setConfig(newScoring);
     setSiteConfig(newSite);
   };
