@@ -25,7 +25,6 @@ import {
   AlertCircle,
   Users,
   SearchCode,
-  ExternalLink,
   Shield
 } from 'lucide-react';
 
@@ -148,46 +147,46 @@ const CaseInputPage: React.FC = () => {
     setActiveEngine('None');
 
     try {
-      // 获取 API Key
-      const apiKey = process.env.API_KEY || '';
+      // 兼容性获取 API_KEY
+      const apiKey = process.env.API_KEY || (window as any).API_KEY;
       
       if (!apiKey) {
-        throw new Error("检测到 API_KEY 未注入。请确保在 Vercel Settings -> Environment Variables 中添加名为 API_KEY 的变量并重新部署。");
+        throw new Error("环境变量 API_KEY 为空。请在 Vercel 项目设置中确认变量名全大写，并进行【Redeploy（重新部署）】。");
       }
 
-      // 智能引擎切换逻辑
       const isDeepSeek = apiKey.startsWith('sk-');
       setActiveEngine(isDeepSeek ? 'DeepSeek' : 'Gemini');
 
       const prompt = `
-        你是一个基于神经网络与专家知识协同架构 (Neural-Expert Synergy v2.0) 的结核病专家。
-        【受检者画像】
+        你是一个基于神经网络与专家知识协同架构的结核病诊断专家。
+        【当前病例画像】
         - 基础体征: ${formData.gender}, ${formData.age}岁, BMI ${bmi}
-        - 临床症状: ${formData.symptoms.join(', ') || '无典型症状'}
-        - 暴露风险: ${formData.exposure}
-        - 影像学(CT): ${formData.ctFeature || '无特定描述'}
-        - 实验室: QFT(${formData.qft}), 涂片(${formData.smear}), 培养(${formData.culture})
-        - 专家系统总分: ${totalScore}
-        - 临床线索: ${rawNotes || '无补充'}
-        
-        【规则约束】
-        1. 病原学阴性（涂片和培养均阴性）时，禁止给出“确诊”结论。
-        2. 返回格式必须是纯 JSON。
-        
-        【输出规范】
+        - 临床表现: ${formData.symptoms.join(', ') || '无明显症状'}
+        - 流行病学接触: ${formData.exposure}
+        - 影像特征: ${formData.ctFeature || '无显著特征'}
+        - 指标数据: QFT(${formData.qft}), 涂片(${formData.smear}), 培养(${formData.culture})
+        - 既往背景: ${formData.history.join(', ') || '无'}
+        - 临床指南评分: ${totalScore}
+        - 临床备注: ${rawNotes || '无'}
+
+        【任务】
+        请基于以上信息，生成临床评估报告。
+        1. 必须返回纯 JSON 格式。
+        2. 若涂片/培养阴性，禁止给出确诊结论。
+
+        【JSON 格式要求】
         {
-          "reasoning": "中文医学推导报告",
-          "fusionScore": 0-150之间的整数,
+          "reasoning": "中文临床推导链条",
+          "fusionScore": 0-150 之间的整数,
           "anomalies": ["非典型表现列表"],
-          "suggestedAction": "临床建议内容",
-          "confidence": 0-1之间的数值
+          "suggestedAction": "下一步临床建议",
+          "confidence": 0-1 之间的数值
         }
       `;
 
       let result: any = null;
 
       if (isDeepSeek) {
-        // --- DeepSeek Engine ---
         const response = await fetch('https://api.deepseek.com/chat/completions', {
           method: 'POST',
           headers: {
@@ -197,7 +196,7 @@ const CaseInputPage: React.FC = () => {
           body: JSON.stringify({
             model: "deepseek-chat",
             messages: [
-              { role: "system", content: "你是一个专业的结核病辅助诊断AI，请仅返回 JSON 格式结果。" },
+              { role: "system", content: "你是一个专业的医学 AI 专家。请始终返回 JSON 格式。" },
               { role: "user", content: prompt }
             ],
             response_format: { type: 'json_object' }
@@ -205,40 +204,33 @@ const CaseInputPage: React.FC = () => {
         });
 
         if (!response.ok) {
-          const errorData = await response.json().catch(() => ({}));
-          throw new Error(errorData.error?.message || `DeepSeek API 响应异常 (${response.status})`);
+          const errData = await response.json().catch(() => ({}));
+          throw new Error(`DeepSeek 接口异常: ${errData.error?.message || response.statusText}`);
         }
 
         const data = await response.json();
         result = JSON.parse(data.choices[0].message.content);
-
       } else {
-        // --- Gemini Engine ---
-        // 只有使用 Gemini Pro 时才需要检查 aistudio 权限，这里我们先常规连接
         const ai = new GoogleGenAI({ apiKey });
         const response = await ai.models.generateContent({
-          model: 'gemini-3-pro-preview', // 使用最新预览版以获得最佳思考能力
-          contents: { parts: [{ text: prompt }] },
-          config: { 
+          model: 'gemini-3-pro-preview',
+          contents: prompt,
+          config: {
+            systemInstruction: "你是一个结核病诊断辅助系统，旨在提供基于医学证据的深度推理。",
             responseMimeType: "application/json",
             thinkingConfig: { thinkingBudget: 16000 }
           }
         });
 
         const text = response.text;
-        if (!text) throw new Error("Gemini 引擎未返回任何结果");
-        
-        // 清理 markdown 标签
-        const cleanJson = text.replace(/```json|```/gi, '').trim();
-        result = JSON.parse(cleanJson);
+        if (!text) throw new Error("Gemini 引擎未返回结果");
+        result = JSON.parse(text);
       }
 
-      if (result) {
-        setAiResult(result);
-      }
+      setAiResult(result);
     } catch (err: any) {
-      console.error("AI Synergy Error:", err);
-      setAiError(err.message || '推理过程中发生未知错误，请检查网络或密钥有效性。');
+      console.error("Inference Sync Error:", err);
+      setAiError(`AI 协同失败: ${err.message}`);
     } finally {
       setIsAiProcessing(false);
     }
