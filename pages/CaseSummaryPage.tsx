@@ -98,17 +98,18 @@ const CaseSummaryPage: React.FC = () => {
     const headers = [
       '档案编号', '评估日期', '姓名', '性别', '年龄', 'BMI', 
       '既往史', '临床症状', '暴露史', '影像学特征', '分子检测(Xpert)', '痰涂片', '痰培养', 'QFT',
-      '指南基础分', 'AI融合总分', '风险等级', '临床建议'
+      '指南基础分', 'AI融合总分', '风险等级', '临床建议', '非典型/矛盾风险点'
     ];
 
     const rows = targetCases.map(c => {
       const rawScore = calculateClinicalScore(c);
+      const anomaliesStr = (c.aiInference?.anomalies || []).join('; ');
       return [
         c.id, new Date(c.timestamp).toLocaleString(), c.name, c.gender, c.age, c.bmi,
         (c.history || []).join('; '), (c.symptoms || []).join('; '), c.exposure, c.ctFeature, 
         c.molecularResult, c.smearResult, c.cultureResult, c.qftResult,
         rawScore, c.aiInference?.fusionScore || c.totalScore,
-        c.riskLevel, c.suggestion
+        c.riskLevel, c.suggestion, anomaliesStr
       ].map(v => `"${String(v ?? '').replace(/"/g, '""')}"`);
     });
 
@@ -247,6 +248,23 @@ const CaseSummaryPage: React.FC = () => {
                              </div>
                              {c.aiInference ? (
                                <div className="space-y-6">
+                                 {/* 识别到的非典型/矛盾风险点列表 */}
+                                 {c.aiInference.anomalies && c.aiInference.anomalies.length > 0 && (
+                                   <div className="bg-rose-500/10 p-6 rounded-3xl border border-rose-500/20">
+                                     <span className="text-[9px] font-black text-rose-400 uppercase block mb-3 flex items-center gap-2">
+                                       <AlertTriangle size={14} /> 识别到的非典型/矛盾风险点
+                                     </span>
+                                     <ul className="space-y-2">
+                                       {c.aiInference.anomalies.map((a, i) => (
+                                         <li key={i} className="text-[11px] text-slate-100 font-medium flex items-start gap-2 italic leading-relaxed">
+                                           <span className="mt-1.5 w-1 h-1 rounded-full bg-rose-500 shrink-0"></span>
+                                           {a}
+                                         </li>
+                                       ))}
+                                     </ul>
+                                   </div>
+                                 )}
+
                                  <div className="bg-white/5 p-6 rounded-3xl border border-white/5 space-y-2">
                                    <span className="text-[9px] font-black text-indigo-400 uppercase">推理推导链</span>
                                    <p className="text-[11px] text-slate-300 leading-relaxed italic font-medium">“{c.aiInference.reasoning}”</p>
