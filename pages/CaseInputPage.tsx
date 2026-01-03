@@ -3,33 +3,26 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
 import { useStore } from '../store.tsx';
 import { Case, AiInference } from '../types.ts';
-import { GoogleGenAI } from "@google/genai";
+import { GoogleGenAI, Type } from "@google/genai";
 import { 
   Calculator, 
   ChevronRight, 
   CheckCircle2, 
-  Thermometer,
-  Edit3,
-  ArrowLeft,
-  Microscope,
-  Zap,
-  Eye,
   Stethoscope,
-  AlertTriangle,
-  Activity,
+  Eye,
   Sparkles,
   BrainCircuit,
   Loader2,
-  Terminal,
-  ShieldCheck,
   AlertCircle,
   Users,
-  SearchCode,
-  Shield
+  Scale,
+  Ruler,
+  History,
+  AlertTriangle
 } from 'lucide-react';
 
 const CaseInputPage: React.FC = () => {
-  const { addCase, updateCase, config, siteConfig, currentUser, cases } = useStore();
+  const { addCase, updateCase, config, currentUser, cases } = useStore();
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
   const editId = searchParams.get('edit');
@@ -44,7 +37,7 @@ const CaseInputPage: React.FC = () => {
     history: [] as string[],
     symptoms: [] as string[],
     exposure: '无接触史',
-    ctFeature: '',
+    ctFeature: '无显著特征',
     qft: '阴性',
     smear: '阴性',
     culture: '阴性'
@@ -54,43 +47,37 @@ const CaseInputPage: React.FC = () => {
   const [isAiProcessing, setIsAiProcessing] = useState(false);
   const [aiError, setAiError] = useState<string | null>(null);
   const [aiResult, setAiResult] = useState<AiInference | null>(null);
-  const [activeEngine, setActiveEngine] = useState<'Gemini' | 'DeepSeek' | 'None'>('None');
-
   const [bmi, setBmi] = useState(0);
   const [totalScore, setTotalScore] = useState(0);
-  const [risk, setRisk] = useState<{ level: string; suggestion: string }>({ 
-    level: '计算中...', 
-    suggestion: '' 
-  });
+  const [risk, setRisk] = useState({ level: '计算中...', suggestion: '' });
   const [submitted, setSubmitted] = useState(false);
 
+  // 初始化编辑数据
   useEffect(() => {
     if (editId && isInitialLoad.current) {
-      const existingCase = cases.find(c => c.id === editId);
-      if (existingCase) {
+      const c = cases.find(item => item.id === editId);
+      if (c) {
         setFormData({
-          name: existingCase.name || '',
-          age: existingCase.age?.toString() || '',
-          gender: existingCase.gender || '男',
-          height: existingCase.height?.toString() || '',
-          weight: existingCase.weight?.toString() || '',
-          history: Array.isArray(existingCase.history) ? existingCase.history : [],
-          symptoms: Array.isArray(existingCase.symptoms) ? existingCase.symptoms : [],
-          exposure: existingCase.exposure || '无接触史',
-          ctFeature: existingCase.ctFeature || '',
-          qft: existingCase.qftResult || '阴性',
-          smear: existingCase.smearResult || '阴性',
-          culture: existingCase.cultureResult || '阴性'
+          name: c.name || '',
+          age: c.age?.toString() || '',
+          gender: c.gender || '男',
+          height: c.height?.toString() || '',
+          weight: c.weight?.toString() || '',
+          history: c.history || [],
+          symptoms: c.symptoms || [],
+          exposure: c.exposure || '无接触史',
+          ctFeature: c.ctFeature || '无显著特征',
+          qft: c.qftResult || '阴性',
+          smear: c.smearResult || '阴性',
+          culture: c.cultureResult || '阴性'
         });
-        if (existingCase.aiInference) {
-          setAiResult(existingCase.aiInference);
-          setRawNotes(existingCase.aiInference.reasoning || '');
-        }
+        if (c.aiInference) setAiResult(c.aiInference);
         isInitialLoad.current = false;
       }
     }
   }, [editId, cases]);
 
+  // BMI 实时计算
   useEffect(() => {
     const h = parseFloat(formData.height) / 100;
     const w = parseFloat(formData.weight);
@@ -101,509 +88,248 @@ const CaseInputPage: React.FC = () => {
     }
   }, [formData.height, formData.weight]);
 
+  // 分值与风险阶梯计算
   useEffect(() => {
     let score = 0;
-    (formData.history || []).forEach(h => score += config.history[h] || 0);
-    (formData.symptoms || []).forEach(s => score += config.symptoms[s] || 0);
+    formData.history.forEach(h => score += config.history[h] || 0);
+    formData.symptoms.forEach(s => score += config.symptoms[s] || 0);
     score += config.exposure[formData.exposure] || 0;
     score += config.ctFeatures[formData.ctFeature] || 0;
     score += config.qft[formData.qft] || 0;
     score += config.smear[formData.smear] || 0;
     score += config.culture[formData.culture] || 0;
 
-    const isPathogenPositive = formData.smear === '阳性' || formData.culture === '阳性';
-    
-    let finalLevel = '计算中...';
-    let finalSuggestion = '';
+    const isConfirmed = formData.smear === '阳性' || formData.culture === '阳性';
+    let level = '评估中';
+    let suggestion = '';
 
-    if (isPathogenPositive) {
-      finalLevel = '确诊结核病';
-      finalSuggestion = config.thresholds.find(t => t.level === '确诊结核病')?.suggestion || '病原学阳性，请立即启动规范化治疗。';
+    if (isConfirmed) {
+      level = '确诊结核病';
+      suggestion = '病原学阳性，请立即启动规范治疗。';
     } else {
-      const thresholdsSorted = [...config.thresholds]
-        .filter(t => t.level !== '确诊结核病')
-        .sort((a, b) => b.min - a.min);
-
-      const match = thresholdsSorted.find(t => score >= t.min);
-      if (match) {
-        finalLevel = match.level;
-        finalSuggestion = match.suggestion;
-      } else if (score >= 100) {
-        finalLevel = '极高危风险';
-        finalSuggestion = '临床总分极高，但病原学阴性。严禁直接确诊，需进一步进行病理或分子诊断。';
-      } else {
-        finalLevel = '无风险';
-        finalSuggestion = '维持常规监测。';
-      }
+      const match = [...config.thresholds].sort((a,b) => b.min - a.min).find(t => score >= t.min);
+      level = match?.level || '无风险';
+      suggestion = match?.suggestion || '维持监测。';
     }
 
     setTotalScore(score);
-    setRisk({ level: finalLevel, suggestion: finalSuggestion });
+    setRisk({ level, suggestion });
   }, [formData, config]);
+
+  const toggleItem = (field: 'history' | 'symptoms', val: string) => {
+    setFormData(prev => ({
+      ...prev,
+      [field]: prev[field].includes(val) ? prev[field].filter(v => v !== val) : [...prev[field], val]
+    }));
+  };
 
   const runAiSynergy = async () => {
     setAiError(null);
     setIsAiProcessing(true);
-    setActiveEngine('None');
-
     try {
-      // 深度检查 API_KEY，防止 Vercel 注入失败
-      const apiKey = process.env.API_KEY || (window as any).process?.env?.API_KEY || (window as any).API_KEY;
+      const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+      const prompt = `分析结核风险：${formData.name}, ${formData.age}岁, BMI:${bmi}, 症状:${formData.symptoms.join(',')}, 影像:${formData.ctFeature}, QFT:${formData.qft}, 涂片:${formData.smear}。备注：${rawNotes}`;
       
-      if (!apiKey || apiKey === "undefined" || apiKey.trim() === "") {
-        throw new Error("检测到 API_KEY 环境变量为空。请检查 Vercel 项目设置 -> Environment Variables 是否正确添加了名为 API_KEY 的变量，并且【务必执行一次 Redeploy】使变量生效。");
-      }
-
-      const isDeepSeek = apiKey.startsWith('sk-');
-      setActiveEngine(isDeepSeek ? 'DeepSeek' : 'Gemini');
-
-      const prompt = `
-        你是一个基于神经网络与专家知识协同架构的结核病诊断专家。
-        【当前病例画像】
-        - 基础体征: ${formData.gender}, ${formData.age}岁, BMI ${bmi}
-        - 临床症状: ${formData.symptoms.join(', ') || '无明显症状'}
-        - 流行病学风险: ${formData.exposure}
-        - 影像学表现: ${formData.ctFeature || '无显著影像特征'}
-        - 实验室结果: QFT(${formData.qft}), 涂片(${formData.smear}), 培养(${formData.culture})
-        - 临床指南得分: ${totalScore}
-        - 指南风险评级: ${risk.level}
-        - 补充临床备注: ${rawNotes || '无'}
-
-        【任务要求】
-        1. 必须返回纯 JSON 格式报告。
-        2. 如果病原学(涂片/培养)均为阴性，严禁直接得出确诊结论，应识别数据矛盾。
-        
-        【JSON 输出结构】
-        {
-          "reasoning": "中文临床推导逻辑",
-          "fusionScore": 0-150 之间的整数,
-          "anomalies": ["非典型或矛盾表现列表"],
-          "suggestedAction": "临床下一步决策建议",
-          "confidence": 0-1 之间的数值
-        }
-      `;
-
-      let result: any = null;
-
-      if (isDeepSeek) {
-        const response = await fetch('https://api.deepseek.com/chat/completions', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${apiKey}`
-          },
-          body: JSON.stringify({
-            model: "deepseek-chat",
-            messages: [
-              { role: "system", content: "你是一个专业的医学诊断AI，请仅返回 JSON 格式结果。" },
-              { role: "user", content: prompt }
-            ],
-            response_format: { type: 'json_object' }
-          })
-        });
-
-        if (!response.ok) {
-          const errData = await response.json().catch(() => ({}));
-          throw new Error(`DeepSeek 接口异常: ${errData.error?.message || response.statusText}`);
-        }
-
-        const data = await response.json();
-        result = JSON.parse(data.choices[0].message.content);
-      } else {
-        // 使用标准的 Gemini 初始化
-        const ai = new GoogleGenAI({ apiKey });
-        const response = await ai.models.generateContent({
-          model: 'gemini-3-pro-preview',
-          contents: { parts: [{ text: prompt }] },
-          config: {
-            systemInstruction: "你是一个结核病诊断辅助系统，旨在提供深度医学证据推理。",
-            responseMimeType: "application/json",
-            thinkingConfig: { thinkingBudget: 16000 }
+      const res = await ai.models.generateContent({
+        model: 'gemini-3-pro-preview',
+        contents: [{ parts: [{ text: prompt }] }],
+        config: {
+          responseMimeType: "application/json",
+          thinkingConfig: { thinkingBudget: 10000 },
+          responseSchema: {
+            type: Type.OBJECT,
+            properties: {
+              reasoning: { type: Type.STRING },
+              fusionScore: { type: Type.NUMBER },
+              anomalies: { type: Type.ARRAY, items: { type: Type.STRING } },
+              suggestedAction: { type: Type.STRING },
+              confidence: { type: Type.NUMBER }
+            },
+            required: ["reasoning", "fusionScore", "anomalies", "suggestedAction", "confidence"]
           }
-        });
-
-        const text = response.text;
-        if (!text) throw new Error("Gemini 引擎未能生成有效推导内容。");
-        result = JSON.parse(text);
-      }
-
-      setAiResult(result);
-    } catch (err: any) {
-      console.error("AI Synergy Execution Error:", err);
-      setAiError(err.message || "由于网络或配置原因，协同推理请求失败。");
-    } finally {
-      setIsAiProcessing(false);
-    }
+        }
+      });
+      setAiResult(JSON.parse(res.text || '{}'));
+    } catch (e) {
+      setAiError("AI 引擎未就绪。请确认在登录页配置了密钥。");
+    } finally { setIsAiProcessing(false); }
   };
 
-  const handleToggleList = (field: 'history' | 'symptoms', val: string) => {
-    setFormData(prev => ({
-      ...prev,
-      [field]: prev[field].includes(val) ? prev[field].filter(i => i !== val) : [...prev[field], val]
-    }));
-  };
-
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!currentUser) return;
-
-    const finalScore = aiResult?.fusionScore ?? totalScore;
-    const isPathogenPositive = formData.smear === '阳性' || formData.culture === '阳性';
-    
-    let finalRiskLevel = risk.level;
-    if (isPathogenPositive) {
-      finalRiskLevel = '确诊结核病';
-    } else {
-      const match = config.thresholds.find(t => finalScore >= t.min && finalScore <= t.max && t.level !== '确诊结核病');
-      finalRiskLevel = match ? match.level : (finalScore >= 100 ? '极高危风险' : risk.level);
-    }
-
-    const caseData: Case = {
+    const data: Case = {
       id: editId || Date.now().toString(),
-      timestamp: editId ? (cases.find(c => c.id === editId)?.timestamp || Date.now()) : Date.now(),
+      timestamp: Date.now(),
       name: formData.name,
       age: parseInt(formData.age) || 0,
       gender: formData.gender,
       height: parseFloat(formData.height) || 0,
       weight: parseFloat(formData.weight) || 0,
-      bmi: bmi,
+      bmi,
       history: formData.history,
       symptoms: formData.symptoms,
       exposure: formData.exposure,
-      ctFeature: formData.ctFeature || '无显著特征',
+      ctFeature: formData.ctFeature,
       ctScore: config.ctFeatures[formData.ctFeature] || 0,
       qftResult: formData.qft,
       smearResult: formData.smear,
       cultureResult: formData.culture,
-      totalScore: finalScore,
-      riskLevel: finalRiskLevel,
-      suggestion: aiResult?.suggestedAction || risk.suggestion,
-      creatorId: editId ? (cases.find(c => c.id === editId)?.creatorId || currentUser.id) : currentUser.id,
-      creatorName: editId ? (cases.find(c => c.id === editId)?.creatorName || currentUser.username) : currentUser.username,
+      totalScore: aiResult?.fusionScore ?? totalScore,
+      riskLevel: risk.level,
+      suggestion: aiResult?.suggestedAction ?? risk.suggestion,
+      creatorId: currentUser.id,
+      creatorName: currentUser.username,
       aiInference: aiResult || undefined
     };
 
-    if (editId) {
-      updateCase(editId, caseData);
-    } else {
-      addCase(caseData);
-    }
-
+    editId ? await updateCase(editId, data) : await addCase(data);
     setSubmitted(true);
-    setTimeout(() => {
-      setSubmitted(false);
-      navigate('/dashboard/summary');
-    }, 1200);
+    setTimeout(() => navigate('/dashboard/summary'), 800);
   };
 
   return (
-    <div className="space-y-6 text-slate-900 dark:text-white pb-20">
-      <div className="flex items-center justify-between mb-2">
-        <div>
-          <h1 className="text-2xl font-black text-slate-950 dark:text-white flex items-center gap-3">
-            {editId ? <Edit3 size={24} className="text-amber-500" /> : <Stethoscope size={24} className="text-emerald-600" />}
-            {editId ? '编辑诊断档案' : siteConfig.inputPageTitle}
-          </h1>
-          <p className="text-slate-500 dark:text-slate-400 font-bold mt-0.5 text-sm italic">
-             {editId ? `档案 ID: ${editId}` : siteConfig.inputPageDesc}
-          </p>
-        </div>
-        {editId && (
-          <button onClick={() => navigate('/dashboard/summary')} className="flex items-center gap-2 px-6 py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl font-black text-sm transition-all hover:bg-slate-50 shadow-sm">
-            <ArrowLeft size={16} /> 返回透视中心
-          </button>
-        )}
+    <div className="space-y-6 pb-20">
+      <div className="flex items-center gap-3 mb-4">
+        <Stethoscope className="text-emerald-600" size={28} />
+        <h1 className="text-2xl font-black text-slate-900 dark:text-white">{editId ? '编辑病例' : '风险评估录入'}</h1>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <div className="lg:col-span-2 space-y-6">
-          <form id="screening-form" onSubmit={handleSubmit} className="bg-white dark:bg-slate-900 rounded-[2.5rem] p-8 md:p-10 border border-slate-100 dark:border-slate-800 shadow-xl space-y-10">
-            
-            <section className="space-y-6">
-              <h3 className="text-lg font-black text-slate-950 dark:text-white flex items-center gap-3 uppercase tracking-tighter">
-                <div className="w-1.5 h-6 bg-emerald-600 rounded-full" />
-                患者基础生命体征
-              </h3>
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                <div>
-                  <InputLabel label="受检者姓名" />
-                  <input required value={formData.name} onChange={e => setFormData({...formData, name: e.target.value})} className="w-full px-5 py-4 rounded-xl bg-slate-50 dark:bg-slate-800 border-none font-black text-slate-950 dark:text-white shadow-inner outline-none focus:ring-1 focus:ring-emerald-500" placeholder="姓名"/>
-                </div>
-                <div>
-                  <InputLabel label="实足年龄" />
-                  <input required type="number" value={formData.age} onChange={e => setFormData({...formData, age: e.target.value})} className="w-full px-5 py-4 rounded-xl bg-slate-50 dark:bg-slate-800 border-none font-black text-slate-950 dark:text-white shadow-inner outline-none" placeholder="岁"/>
-                </div>
-                <div>
-                  <InputLabel label="生理性别" />
-                  <div className="flex gap-2">
-                    {['男', '女'].map(g => (
-                      <button key={g} type="button" onClick={() => setFormData({...formData, gender: g as '男' | '女'})} className={`flex-1 py-4 rounded-xl border-2 transition-all font-black text-xs ${formData.gender === g ? 'bg-slate-950 text-white border-slate-950 dark:bg-emerald-600 dark:border-emerald-600 shadow-lg' : 'bg-white dark:bg-slate-800 border-slate-100 dark:border-slate-700 text-slate-400'}`}>{g}</button>
-                    ))}
-                  </div>
-                </div>
-              </div>
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-6 items-end">
-                <div>
-                  <InputLabel label="身高 (cm)" />
-                  <input required type="number" value={formData.height} onChange={e => setFormData({...formData, height: e.target.value})} className="w-full px-5 py-4 rounded-xl bg-slate-50 dark:bg-slate-800 border-none font-black text-slate-950 dark:text-white shadow-inner"/>
-                </div>
-                <div>
-                  <InputLabel label="体重 (kg)" />
-                  <input required type="number" value={formData.weight} onChange={e => setFormData({...formData, weight: e.target.value})} className="w-full px-5 py-4 rounded-xl bg-slate-50 dark:bg-slate-800 border-none font-black text-slate-950 dark:text-white shadow-inner"/>
-                </div>
-                <div className="bg-emerald-50 dark:bg-emerald-900/10 p-5 rounded-xl border border-emerald-100 dark:border-emerald-800 flex items-center justify-between">
-                  <span className="text-[10px] font-black text-emerald-600/60 uppercase tracking-widest">BMI 实时指数</span>
-                  <span className={`text-xl font-black ${bmi >= 18.5 && bmi <= 24 ? 'text-emerald-600' : 'text-rose-600'}`}>{bmi || '--'}</span>
-                </div>
-              </div>
-            </section>
-
-            <section className="space-y-6">
-              <h3 className="text-lg font-black text-slate-950 dark:text-white flex items-center gap-3 uppercase tracking-tighter">
-                <div className="w-1.5 h-6 bg-amber-500 rounded-full" />
-                影像表现与风险接触史
-              </h3>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-                <div className="space-y-4">
-                  <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2">
-                    <Users size={14} className="text-amber-600" /> 流行病学风险接触史
-                  </label>
-                  <div className="grid grid-cols-1 gap-2">
-                    {Object.keys(config.exposure).map(exp => (
-                      <button 
-                        key={exp} type="button" 
-                        onClick={() => setFormData({...formData, exposure: exp})}
-                        className={`px-5 py-4 rounded-xl border transition-all text-xs font-bold text-left flex justify-between items-center ${formData.exposure === exp ? 'bg-amber-50 dark:bg-amber-900/20 border-amber-500 text-amber-700 dark:text-amber-400 shadow-md ring-1 ring-amber-500' : 'bg-white dark:bg-slate-800 border-slate-100 dark:border-slate-700 text-slate-500'}`}
-                      >
-                        {exp} <span className="text-[10px] opacity-40">+{config.exposure[exp]} 分</span>
-                      </button>
-                    ))}
-                  </div>
-                </div>
-                <div className="space-y-4">
-                  <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2">
-                    <Eye size={14} className="text-blue-600" /> 胸部 CT 影像学关键特征
-                  </label>
-                  <div className="grid grid-cols-1 gap-2">
-                    {Object.keys(config.ctFeatures).map(feat => (
-                      <button 
-                        key={feat} type="button" 
-                        onClick={() => setFormData({...formData, ctFeature: formData.ctFeature === feat ? '' : feat})}
-                        className={`px-5 py-4 rounded-xl border transition-all text-xs font-bold text-left flex justify-between items-center ${formData.ctFeature === feat ? 'bg-blue-50 dark:bg-blue-900/20 border-blue-500 text-blue-700 dark:text-blue-400 shadow-md ring-1 ring-blue-500' : 'bg-white dark:bg-slate-800 border-slate-100 dark:border-slate-700 text-slate-500'}`}
-                      >
-                        {feat} <span className="text-[10px] opacity-40">+{config.ctFeatures[feat]} 分</span>
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              </div>
-            </section>
-
-            <section className="space-y-6">
-              <h3 className="text-lg font-black text-slate-950 dark:text-white flex items-center gap-3 uppercase tracking-tighter">
-                <div className="w-1.5 h-6 bg-blue-600 rounded-full" />
-                临床症状与既往史
-              </h3>
-              <div className="space-y-8">
-                <div>
-                  <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-4 flex items-center gap-2">
-                    <Thermometer size={14} /> 典型呼吸道/全身表现 (多选)
-                  </label>
-                  <div className="flex flex-wrap gap-2.5">
-                    {Object.keys(config.symptoms).map(item => (
-                      <button 
-                        key={item} type="button" 
-                        onClick={() => handleToggleList('symptoms', item)} 
-                        className={`px-5 py-3 rounded-xl border transition-all text-[11px] font-black ${formData.symptoms.includes(item) ? 'bg-rose-50 dark:bg-rose-900/30 border-rose-600 text-rose-700 dark:text-rose-400 shadow-sm' : 'bg-white dark:bg-slate-800 border-slate-100 dark:border-slate-700 text-slate-400'}`}
-                      >
-                        {item} <span className="ml-1 opacity-40">+{config.symptoms[item]}</span>
-                      </button>
-                    ))}
-                  </div>
-                </div>
-                <div>
-                  <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-4">高危背景/既往病史</label>
-                  <div className="flex flex-wrap gap-2.5">
-                    {Object.keys(config.history).map(item => (
-                      <button 
-                        key={item} type="button" 
-                        onClick={() => handleToggleList('history', item)} 
-                        className={`px-5 py-3 rounded-xl border transition-all text-[11px] font-black ${formData.history.includes(item) ? 'bg-indigo-50 dark:bg-indigo-900/30 border-indigo-600 text-indigo-700 dark:text-indigo-400 shadow-sm' : 'bg-white dark:bg-slate-800 border-slate-100 dark:border-slate-700 text-slate-400'}`}
-                      >
-                        {item} <span className="ml-1 opacity-40">+{config.history[item]}</span>
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              </div>
-            </section>
-
-            <section className="space-y-6 bg-slate-50 dark:bg-slate-800/40 p-8 rounded-3xl border border-slate-100 dark:border-slate-800">
-              <h3 className="text-lg font-black text-slate-950 dark:text-white flex items-center gap-3 uppercase tracking-tighter">
-                <div className="w-1.5 h-6 bg-rose-600 rounded-full" />
-                实验室病原学检测 (确诊依据)
-              </h3>
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
-                <div className="space-y-4">
-                  <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2">
-                    <SearchCode size={14} className="text-indigo-600" /> QFT 实验
-                  </label>
-                  <div className="grid grid-cols-1 gap-1.5">
-                    {Object.keys(config.qft).map(res => (
-                      <button key={res} type="button" onClick={() => setFormData({...formData, qft: res})} className={`px-5 py-3 rounded-xl border transition-all text-[11px] font-black ${formData.qft === res ? 'bg-indigo-50 dark:bg-indigo-900/30 border-indigo-600 text-indigo-700 dark:text-indigo-400' : 'bg-white dark:bg-slate-800 border-slate-100 dark:border-slate-700 text-slate-400'}`}>{res}</button>
-                    ))}
-                  </div>
-                </div>
-                <div className="space-y-4">
-                  <label className="block text-[10px] font-black text-rose-500 uppercase tracking-widest flex items-center gap-2">
-                    <AlertTriangle size={14} /> 痰涂片 (阳性=确诊)
-                  </label>
-                  <div className="grid grid-cols-1 gap-1.5">
-                    {Object.keys(config.smear).map(res => (
-                      <button key={res} type="button" onClick={() => setFormData({...formData, smear: res})} className={`px-5 py-3 rounded-xl border transition-all text-[11px] font-black ${formData.smear === res ? 'bg-rose-50 dark:bg-rose-900/30 border-rose-600 text-rose-700 dark:text-rose-400 shadow-lg ring-1 ring-rose-500' : 'bg-white dark:bg-slate-800 border-slate-100 dark:border-slate-700 text-slate-400'}`}>{res}</button>
-                    ))}
-                  </div>
-                </div>
-                <div className="space-y-4">
-                  <label className="block text-[10px] font-black text-rose-500 uppercase tracking-widest flex items-center gap-2">
-                    <AlertTriangle size={14} /> 痰培养 (阳性=确诊)
-                  </label>
-                  <div className="grid grid-cols-1 gap-1.5">
-                    {Object.keys(config.culture).map(res => (
-                      <button key={res} type="button" onClick={() => setFormData({...formData, culture: res})} className={`px-5 py-3 rounded-xl border transition-all text-[11px] font-black ${formData.culture === res ? 'bg-rose-50 dark:bg-rose-900/30 border-rose-600 text-rose-700 dark:text-rose-400 shadow-lg ring-1 ring-rose-500' : 'bg-white dark:bg-slate-800 border-slate-100 dark:border-slate-700 text-slate-400'}`}>{res}</button>
-                    ))}
-                  </div>
-                </div>
-              </div>
-            </section>
-
-            <button type="submit" form="screening-form" disabled={submitted} className={`w-full py-6 rounded-2xl font-black text-xl text-white transition-all shadow-xl flex items-center justify-center gap-3 active:scale-[0.98] ${submitted ? 'bg-emerald-600' : 'bg-slate-950 dark:bg-emerald-600 hover:scale-[1.02] shadow-emerald-500/20'}`}>
-              {submitted ? ( <><CheckCircle2 /> 评估报告已归档</> ) : editId ? ( <><Edit3 size={18}/> 更新档案信息</> ) : ( <><ChevronRight /> 提交评估并计算分级</> )}
-            </button>
-          </form>
-        </div>
-
-        <div className="space-y-6">
-          <div className="bg-white dark:bg-slate-900 rounded-[2.5rem] p-8 border border-slate-100 dark:border-slate-800 shadow-2xl flex flex-col items-center">
-            <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] mb-10 flex items-center gap-2">
-              <Calculator size={16} className="text-emerald-600" /> 临床路径评估分
+        <form onSubmit={handleSubmit} className="lg:col-span-2 space-y-8 bg-white dark:bg-slate-900 p-8 md:p-10 rounded-[2.5rem] shadow-xl border border-slate-100 dark:border-slate-800">
+          
+          {/* 1. 基础体征 (核心修复项) */}
+          <section className="space-y-6">
+            <h3 className="text-sm font-black text-slate-400 uppercase tracking-widest flex items-center gap-2">
+              <div className="w-1 h-4 bg-emerald-500 rounded-full" /> 1. 基础体征与生理指标
             </h3>
-            <div className="mb-10 text-center">
-              <div className="text-8xl font-black text-slate-950 dark:text-emerald-500 tracking-tighter">{totalScore}</div>
-              <div className="text-slate-400 text-[10px] font-black uppercase mt-2 tracking-widest">Guideline Score</div>
-            </div>
-            <div className="w-full space-y-8">
+            <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-5 gap-4">
+              <div className="lg:col-span-2">
+                <label className="block text-[10px] font-black text-slate-400 mb-2 ml-1">受检者姓名</label>
+                <input required value={formData.name} onChange={e => setFormData({...formData, name: e.target.value})} className="w-full px-5 py-4 rounded-xl bg-slate-50 dark:bg-slate-800 border-none font-bold" />
+              </div>
               <div>
-                <div className="flex justify-between items-end mb-3">
-                  <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">系统风险阶梯</span>
-                  <span className={`font-black px-5 py-2 rounded-full text-[10px] uppercase border-2 ${risk.level === '确诊结核病' ? 'bg-rose-600 border-rose-600 text-white shadow-lg' : 'bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white border-slate-100 dark:border-slate-800'}`}>
-                    {risk.level}
-                  </span>
-                </div>
-                <div className="w-full bg-slate-100 dark:bg-slate-800 h-3 rounded-full overflow-hidden shadow-inner">
-                  <div className="h-full transition-all duration-700 ease-out" style={{ width: `${Math.min((totalScore / 100) * 100, 100)}%`, backgroundColor: totalScore > 60 ? '#e11d48' : totalScore > 30 ? '#f59e0b' : '#10b981' }}></div>
+                <label className="block text-[10px] font-black text-slate-400 mb-2 ml-1">年龄</label>
+                <input required type="number" value={formData.age} onChange={e => setFormData({...formData, age: e.target.value})} className="w-full px-5 py-4 rounded-xl bg-slate-50 dark:bg-slate-800 border-none font-bold" />
+              </div>
+              <div>
+                <label className="block text-[10px] font-black text-slate-400 mb-2 ml-1">身高 (cm)</label>
+                <div className="relative">
+                  <input required type="number" value={formData.height} onChange={e => setFormData({...formData, height: e.target.value})} className="w-full px-5 py-4 rounded-xl bg-slate-50 dark:bg-slate-800 border-none font-bold" />
+                  <Ruler size={14} className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400" />
                 </div>
               </div>
-              <div className="p-6 bg-slate-50 dark:bg-slate-800 rounded-3xl border border-slate-100 dark:border-slate-700">
-                <div className="flex gap-4">
-                  <Activity size={24} className="shrink-0 text-emerald-600" />
-                  <div>
-                    <p className="text-[9px] font-black mb-2 text-slate-400 uppercase tracking-widest">路径临床建议</p>
-                    <p className="text-xs leading-relaxed text-slate-600 dark:text-slate-400 font-bold italic">“{risk.suggestion}”</p>
-                  </div>
+              <div>
+                <label className="block text-[10px] font-black text-slate-400 mb-2 ml-1">体重 (kg)</label>
+                <div className="relative">
+                  <input required type="number" value={formData.weight} onChange={e => setFormData({...formData, weight: e.target.value})} className="w-full px-5 py-4 rounded-xl bg-slate-50 dark:bg-slate-800 border-none font-bold" />
+                  <Scale size={14} className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400" />
                 </div>
               </div>
+            </div>
+            <div className="flex gap-2">
+              {['男', '女'].map(g => (
+                <button key={g} type="button" onClick={() => setFormData({...formData, gender: g as '男' | '女'})} className={`flex-1 py-4 rounded-xl border-2 font-black text-xs transition-all ${formData.gender === g ? 'bg-slate-950 text-white border-slate-950 dark:bg-emerald-600 dark:border-emerald-600' : 'bg-white dark:bg-slate-800 border-slate-100 dark:border-slate-700 text-slate-400'}`}>{g}</button>
+              ))}
+            </div>
+          </section>
+
+          {/* 2. 既往史与症状 */}
+          <section className="space-y-6">
+            <h3 className="text-sm font-black text-slate-400 uppercase tracking-widest flex items-center gap-2">
+              <div className="w-1 h-4 bg-indigo-500 rounded-full" /> 2. 临床背景与症状
+            </h3>
+            <div className="space-y-4">
+              <label className="block text-[10px] font-black text-slate-400 mb-2 flex items-center gap-2"><History size={14}/> 既往高危史 (多选)</label>
+              <div className="flex flex-wrap gap-2">
+                {Object.keys(config.history).map(h => (
+                  <button key={h} type="button" onClick={() => toggleItem('history', h)} className={`px-4 py-3 rounded-xl border text-[11px] font-bold transition-all ${formData.history.includes(h) ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-white dark:bg-slate-800 border-slate-100 dark:border-slate-700 text-slate-500'}`}>{h}</button>
+                ))}
+              </div>
+            </div>
+            <div className="space-y-4">
+              <label className="block text-[10px] font-black text-slate-400 mb-2 flex items-center gap-2"><AlertTriangle size={14}/> 核心临床症状 (多选)</label>
+              <div className="flex flex-wrap gap-2">
+                {Object.keys(config.symptoms).map(s => (
+                  <button key={s} type="button" onClick={() => toggleItem('symptoms', s)} className={`px-4 py-3 rounded-xl border text-[11px] font-bold transition-all ${formData.symptoms.includes(s) ? 'bg-rose-600 text-white border-rose-600' : 'bg-white dark:bg-slate-800 border-slate-100 dark:border-slate-700 text-slate-500'}`}>{s}</button>
+                ))}
+              </div>
+            </div>
+          </section>
+
+          {/* 3. 风险与实验室 */}
+          <section className="space-y-6 bg-slate-50 dark:bg-slate-800/40 p-8 rounded-3xl">
+            <h3 className="text-sm font-black text-slate-400 uppercase tracking-widest flex items-center gap-2">
+              <div className="w-1 h-4 bg-rose-500 rounded-full" /> 3. 影像学与病原学确诊指标
+            </h3>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div className="space-y-4">
+                <label className="block text-[10px] font-black text-slate-400">接触史</label>
+                <div className="grid grid-cols-1 gap-2">
+                  {Object.keys(config.exposure).map(e => (
+                    <button key={e} type="button" onClick={() => setFormData({...formData, exposure: e})} className={`px-4 py-3 rounded-xl border text-[11px] font-bold text-left ${formData.exposure === e ? 'bg-slate-900 text-white dark:bg-emerald-600' : 'bg-white dark:bg-slate-800 text-slate-500'}`}>{e}</button>
+                  ))}
+                </div>
+              </div>
+              <div className="space-y-4">
+                <label className="block text-[10px] font-black text-slate-400">CT 影像特征</label>
+                <div className="grid grid-cols-1 gap-2">
+                  {Object.keys(config.ctFeatures).map(f => (
+                    <button key={f} type="button" onClick={() => setFormData({...formData, ctFeature: f})} className={`px-4 py-3 rounded-xl border text-[11px] font-bold text-left ${formData.ctFeature === f ? 'bg-slate-900 text-white dark:bg-emerald-600' : 'bg-white dark:bg-slate-800 text-slate-500'}`}>{f}</button>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <button type="submit" disabled={submitted} className={`w-full py-6 rounded-2xl font-black text-xl text-white shadow-xl transition-all ${submitted ? 'bg-emerald-600' : 'bg-slate-950 dark:bg-emerald-600 hover:scale-[1.02]'}`}>
+            {submitted ? '档案已保存' : '提交评估档案'}
+          </button>
+        </form>
+
+        {/* 右侧实时分析看板 */}
+        <div className="space-y-6">
+          <div className="bg-white dark:bg-slate-900 p-8 rounded-[2.5rem] shadow-xl border border-slate-100 dark:border-slate-800">
+            <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] mb-8 flex items-center gap-2"><Calculator size={16}/> 实时临床评估</h3>
+            <div className="grid grid-cols-2 gap-4 mb-8">
+              <div className="p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl flex flex-col items-center">
+                <span className="text-[8px] font-black text-slate-400 uppercase mb-1">BMI 指数</span>
+                <span className={`text-2xl font-black ${bmi < 18.5 && bmi > 0 ? 'text-amber-500' : 'text-slate-900 dark:text-emerald-500'}`}>{bmi || '--'}</span>
+              </div>
+              <div className="p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl flex flex-col items-center">
+                <span className="text-[8px] font-black text-slate-400 uppercase mb-1">临床量表分</span>
+                <span className="text-2xl font-black text-slate-900 dark:text-emerald-500">{totalScore}</span>
+              </div>
+            </div>
+            <div className="text-center p-6 border-2 border-dashed border-slate-100 dark:border-slate-800 rounded-3xl">
+              <div className="text-[10px] font-black text-slate-400 uppercase mb-2">风险预判等级</div>
+              <div className={`text-2xl font-black ${risk.level === '确诊结核病' ? 'text-rose-600' : 'text-slate-900 dark:text-white'}`}>{risk.level}</div>
+              <p className="mt-3 text-[11px] text-slate-500 italic font-bold leading-relaxed">“{risk.suggestion}”</p>
             </div>
           </div>
 
-          <div className="bg-slate-950 rounded-[2.5rem] p-8 shadow-2xl flex flex-col border border-white/5">
-            <div className="w-full flex items-center justify-between mb-8">
-              <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] flex items-center gap-2">
-                <BrainCircuit size={16} className="text-indigo-400" /> Neural-Expert Synergy
-              </h3>
-              <div className="flex items-center gap-2 px-3 py-1 bg-indigo-500/10 rounded-full border border-indigo-500/20">
-                <span className="text-[8px] font-black text-indigo-400 uppercase tracking-widest">{isAiProcessing ? `Engine: ${activeEngine}` : 'Synergy Ready'}</span>
-              </div>
-            </div>
-
-            <div className="w-full space-y-6">
-              <div className="relative">
-                <textarea 
-                  value={rawNotes}
-                  onChange={e => setRawNotes(e.target.value)}
-                  placeholder="在此输入补充临床线索... 如果 API KEY 以 sk- 开头，将自动启动 DeepSeek 推理引擎。"
-                  className="w-full h-32 bg-white/5 border border-white/10 rounded-2xl p-5 text-[13px] font-bold text-white placeholder:text-slate-700 focus:ring-1 focus:ring-indigo-500 outline-none transition-all resize-none leading-relaxed"
-                />
-                <Terminal size={14} className="absolute bottom-4 right-4 text-slate-800 pointer-events-none" />
-              </div>
-
-              <div className="p-4 bg-indigo-500/5 rounded-2xl border border-indigo-500/10">
-                <div className="flex items-center gap-2 text-indigo-400 mb-2">
-                  <ShieldCheck size={14} />
-                  <span className="text-[9px] font-black uppercase tracking-widest">协同推理说明</span>
+          <div className="bg-slate-950 p-8 rounded-[2.5rem] shadow-2xl border border-white/5 space-y-6">
+            <h3 className="text-[10px] font-black text-slate-500 uppercase tracking-[0.2em] flex items-center gap-2"><BrainCircuit size={16} className="text-indigo-400"/> AI 协同推理引擎</h3>
+            <textarea value={rawNotes} onChange={e => setRawNotes(e.target.value)} placeholder="补充临床表现细节..." className="w-full h-32 bg-white/5 border border-white/10 rounded-2xl p-4 text-xs font-bold text-white outline-none resize-none" />
+            <button type="button" onClick={runAiSynergy} disabled={isAiProcessing} className="w-full py-5 rounded-2xl bg-indigo-600 text-white font-black text-xs uppercase flex items-center justify-center gap-2 hover:bg-indigo-500">
+              {isAiProcessing ? <Loader2 className="animate-spin" size={16}/> : <Sparkles size={16}/>}
+              {isAiProcessing ? '推理中...' : '启动 AI 风险穿透'}
+            </button>
+            {aiError && <div className="p-4 bg-rose-500/10 border border-rose-500/20 text-rose-400 text-[10px] font-bold rounded-xl flex gap-2"><AlertCircle size={14}/> {aiError}</div>}
+            {aiResult && (
+              <div className="space-y-4 pt-4 border-t border-white/10 animate-in fade-in">
+                <div className="flex justify-between items-center">
+                   <span className="text-[8px] font-black text-slate-500 uppercase tracking-widest">AI 融合分值</span>
+                   <span className="text-2xl font-black text-indigo-400">{aiResult.fusionScore}</span>
                 </div>
-                <p className="text-[10px] text-slate-500 leading-relaxed font-bold">
-                  系统已集成跨引擎网关。检测到 Vercel 环境变量后将自动连接。建议在病原学阴性时启用 AI 推理进行矛盾点识别。
-                </p>
+                <div className="p-4 bg-white/5 rounded-2xl text-[11px] text-slate-300 italic">“{aiResult.reasoning}”</div>
               </div>
-
-              <button 
-                type="button"
-                onClick={runAiSynergy}
-                disabled={isAiProcessing}
-                className={`w-full py-5 rounded-2xl font-black text-xs uppercase tracking-widest flex items-center justify-center gap-3 transition-all active:scale-[0.98] ${isAiProcessing ? 'bg-slate-800 text-slate-500 cursor-not-allowed' : 'bg-indigo-600 text-white hover:bg-indigo-50 hover:text-indigo-600 shadow-xl shadow-indigo-600/20'}`}
-              >
-                {isAiProcessing ? <Loader2 size={16} className="animate-spin" /> : <Sparkles size={16} />}
-                {isAiProcessing ? `正在使用 ${activeEngine} 进行推理...` : '启动 AI 协同推理'}
-              </button>
-
-              {aiError && (
-                <div className="p-4 bg-rose-500/10 border border-rose-500/20 rounded-2xl flex items-start gap-3 text-rose-400 animate-in fade-in slide-in-from-top-2">
-                  <AlertCircle size={18} className="shrink-0 mt-0.5" />
-                  <div className="text-xs font-bold leading-relaxed">{aiError}</div>
-                </div>
-              )}
-
-              {aiResult && (
-                <div className="space-y-6 animate-in fade-in slide-in-from-top-4 duration-700">
-                  <div className="flex items-center justify-between border-t border-white/10 pt-6">
-                    <div className="flex flex-col">
-                      <span className="text-[8px] font-black text-slate-500 uppercase tracking-widest">AI 修正综合分</span>
-                      <span className="text-3xl font-black text-indigo-400 tracking-tighter">{aiResult.fusionScore}</span>
-                    </div>
-                    <div className="flex flex-col items-end">
-                      <span className="text-[8px] font-black text-slate-500 uppercase tracking-widest">置信评级</span>
-                      <span className="text-lg font-black text-emerald-400 leading-none">{(aiResult.confidence * 100).toFixed(1)}%</span>
-                    </div>
-                  </div>
-
-                  <div className="bg-white/5 rounded-2xl p-5 border border-white/5">
-                    <div className="flex items-center gap-2 mb-3">
-                      <Zap size={14} className="text-indigo-400" />
-                      <span className="text-[9px] font-black text-indigo-400 uppercase tracking-widest">临床推导链条</span>
-                    </div>
-                    <p className="text-[12px] leading-relaxed text-slate-300 font-bold italic">“{aiResult.reasoning}”</p>
-                  </div>
-
-                  <div className="bg-emerald-500/10 rounded-2xl p-5 border border-emerald-500/20">
-                    <div className="flex items-center gap-2 mb-3">
-                      <Activity size={14} className="text-emerald-400" />
-                      <span className="text-[9px] font-black uppercase tracking-widest">专家建议</span>
-                    </div>
-                    <p className="text-[12px] leading-relaxed text-slate-200 font-bold">{aiResult.suggestedAction}</p>
-                  </div>
-                </div>
-              )}
-            </div>
+            )}
           </div>
         </div>
       </div>
     </div>
   );
 };
-
-const InputLabel = ({ label }: { label: string }) => (
-  <label className="block text-[10px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest mb-3 ml-1">{label}</label>
-);
 
 export default CaseInputPage;

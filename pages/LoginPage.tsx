@@ -1,9 +1,24 @@
 
 import React, { useState, useEffect } from 'react';
-import { useNavigate, Link } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import { useStore } from '../store';
 import { UserRole } from '../types';
-import { Activity, ShieldCheck, ArrowLeft, ChevronRight, AlertCircle, Clock } from 'lucide-react';
+import { Activity, ShieldCheck, ChevronRight, AlertCircle, Clock, Key } from 'lucide-react';
+
+/* 
+ * Fix: Define the AIStudio interface in the global scope and update the Window interface 
+ * property declaration to match the required type name 'AIStudio' and ensure identical modifiers.
+ */
+declare global {
+  interface AIStudio {
+    hasSelectedApiKey: () => Promise<boolean>;
+    openSelectKey: () => Promise<void>;
+  }
+
+  interface Window {
+    aistudio: AIStudio;
+  }
+}
 
 const LoginPage: React.FC = () => {
   const [username, setUsername] = useState('');
@@ -11,15 +26,33 @@ const LoginPage: React.FC = () => {
   const [isLogin, setIsLogin] = useState(true);
   const [status, setStatus] = useState<{ type: 'error' | 'info'; msg: string } | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
+  const [hasKey, setHasKey] = useState<boolean>(!!process.env.API_KEY);
 
-  const { users, currentUser, setCurrentUser, addUser, siteConfig, isLoading } = useStore();
+  const { users, currentUser, setCurrentUser, addUser } = useStore();
   const navigate = useNavigate();
 
   useEffect(() => {
-    if (currentUser) {
-      navigate('/dashboard/cases');
-    }
+    if (currentUser) navigate('/dashboard/cases');
+    
+    // 检查 AI Studio 密钥状态
+    const checkKey = async () => {
+      if (!process.env.API_KEY && window.aistudio) {
+        const selected = await window.aistudio.hasSelectedApiKey();
+        setHasKey(selected);
+      }
+    };
+    checkKey();
   }, [currentUser, navigate]);
+
+  const handleLinkKey = async () => {
+    if (window.aistudio) {
+      await window.aistudio.openSelectKey();
+      setHasKey(true);
+      setStatus({ type: 'info', msg: 'AI 密钥已配置，服务连接中...' });
+    } else {
+      window.open('https://ai.google.dev/gemini-api/docs/billing', '_blank');
+    }
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -29,127 +62,101 @@ const LoginPage: React.FC = () => {
     try {
       if (isLogin) {
         const user = users.find(u => u.username === username);
-        
         if (user) {
           if (user.password !== password) {
-            setStatus({ type: 'error', msg: '密码不正确，请重新输入。' });
+            setStatus({ type: 'error', msg: '密码不正确。' });
           } else if (user.username !== 'qinghoohoo' && !user.approved) {
-            // qinghoohoo 免审，其他用户检查 approved
-            setStatus({ type: 'info', msg: '您的账户正在等待超级管理员 (qinghoohoo) 审批，通过后方可登录。' });
-          } else if (!user.active) {
-            setStatus({ type: 'error', msg: '该账户已被禁用。' });
+            setStatus({ type: 'info', msg: '账户待审批。请联系超级管理员 qinghoohoo。' });
           } else {
             setCurrentUser(user);
             navigate('/dashboard/cases');
           }
         } else {
-          setStatus({ type: 'error', msg: '未找到该账户，请核对用户名。' });
+          setStatus({ type: 'error', msg: '未找到账户，请检查用户名。' });
         }
       } else {
         const exists = users.find(u => u.username === username);
         if (exists) {
-          setStatus({ type: 'error', msg: '该用户名已被占用。' });
+          setStatus({ type: 'error', msg: '用户名已存在。' });
         } else {
-          // 注册用户时 approved 默认为 false
           await addUser(username, UserRole.USER, password, false);
-          setStatus({ type: 'info', msg: '注册申请已提交！请联系 qinghoohoo 审批。' });
+          setStatus({ type: 'info', msg: '注册申请已提交，请等待审批。' });
           setIsLogin(true); 
         }
       }
     } catch (err) {
-      setStatus({ type: 'error', msg: '网络异常，请重试。' });
+      setStatus({ type: 'error', msg: '网络异常。' });
     } finally {
       setIsProcessing(false);
     }
   };
 
   return (
-    <div className="min-h-screen bg-[#F5F5F7] flex items-center justify-center p-6 selection:bg-emerald-100 dark:bg-slate-950">
-      <div className="fixed inset-0 overflow-hidden -z-10">
-        <div className="absolute top-[-10%] right-[-10%] w-[60%] h-[60%] bg-emerald-100/40 dark:bg-emerald-900/10 rounded-full blur-[120px]"></div>
-        <div className="absolute bottom-[-10%] left-[-10%] w-[50%] h-[50%] bg-blue-100/30 dark:bg-blue-900/10 rounded-full blur-[100px]"></div>
-      </div>
-
-      <div className="w-full max-w-[1000px] bg-white/80 dark:bg-slate-900/80 backdrop-blur-3xl rounded-[40px] shadow-[0_32px_64px_-16px_rgba(0,0,0,0.08)] border border-white dark:border-slate-800 flex flex-col md:flex-row overflow-hidden animate-in fade-in zoom-in-95 duration-1000">
-        <div className="hidden md:flex md:w-[45%] bg-slate-900 p-12 flex-col justify-between text-white relative">
-          <div className="relative z-10">
-            <Link to="/" className="inline-flex items-center gap-2.5 group mb-16">
-               <div className="bg-emerald-600 p-2 rounded-xl group-hover:scale-110 apple-transition shadow-lg shadow-emerald-500/20">
-                 <Activity size={24} />
-               </div>
-               <span className="text-xl font-bold tracking-tight">TB-Scan</span>
-            </Link>
-            <div className="space-y-6">
-              <h2 className="text-4xl font-extrabold leading-[1.1] tracking-tight">临床协作，<br />受控准入。</h2>
-              <p className="text-slate-400 font-medium leading-relaxed max-w-[240px]">
-                集成云端审批流，确保每一位医疗协作人员均经过身份核验。
-              </p>
-            </div>
+    <div className="min-h-screen bg-[#F5F5F7] dark:bg-slate-950 flex items-center justify-center p-6">
+      <div className="w-full max-w-[900px] bg-white dark:bg-slate-900 rounded-[40px] shadow-2xl border border-slate-100 dark:border-slate-800 flex overflow-hidden">
+        {/* 左侧装饰栏 */}
+        <div className="hidden md:flex w-1/3 bg-slate-950 p-10 flex-col justify-between text-white relative">
+          <div className="z-10">
+            <div className="bg-emerald-600 w-10 h-10 rounded-xl flex items-center justify-center mb-8"><Activity size={20}/></div>
+            <h2 className="text-3xl font-black leading-tight">TB-Scan<br/>准入管理</h2>
+            <p className="text-slate-500 text-xs mt-4 font-bold">受控临床数据环境</p>
           </div>
-          <div className="relative z-10">
-            <div className="p-6 bg-white/5 backdrop-blur-xl rounded-3xl border border-white/10 space-y-4">
-              <div className="flex items-center gap-3">
-                <div className="w-8 h-8 bg-emerald-500/20 rounded-lg flex items-center justify-center text-emerald-400">
-                   <ShieldCheck size={18} />
-                </div>
-                <span className="text-xs font-bold uppercase tracking-widest text-emerald-400">安全合规审计</span>
-              </div>
-              <p className="text-[11px] text-slate-400 leading-relaxed font-bold">
-                只有经由 qinghoohoo 授权的账户才能访问敏感临床数据中心。
-              </p>
-            </div>
+          <div className="z-10 p-4 bg-white/5 rounded-2xl border border-white/10 text-[10px] text-slate-400">
+            <ShieldCheck className="text-emerald-500 mb-2" size={16}/>
+            AI 协同筛查模式已就绪，所有诊断建议均需临床医师最终确认。
           </div>
+          <div className="absolute top-0 right-0 w-32 h-32 bg-emerald-600/20 blur-3xl rounded-full translate-x-1/2 -translate-y-1/2"></div>
         </div>
 
-        <div className="flex-1 p-10 lg:p-16 flex flex-col justify-center">
-          <div className="mb-10">
-             <Link to="/" className="inline-flex items-center gap-1.5 text-[13px] font-bold text-slate-400 hover:text-emerald-600 apple-transition mb-8">
-               <ArrowLeft size={14} /> 返回首页
-             </Link>
-             <h1 className="text-3xl font-black text-slate-900 dark:text-white mb-2 tracking-tight">
-               {isLogin ? '欢迎登录' : '提交准入申请'}
-             </h1>
-             <p className="text-slate-500 dark:text-slate-400 font-bold">数字化结核病精准筛查平台。</p>
+        {/* 右侧登录表单 */}
+        <div className="flex-1 p-10 lg:p-16">
+          <div className="mb-10 flex justify-between items-start">
+            <div>
+              <h1 className="text-2xl font-black text-slate-900 dark:text-white mb-2">{isLogin ? '欢迎登录' : '申请注册'}</h1>
+              <p className="text-slate-500 text-sm font-bold">数字化结核病精准筛查平台</p>
+            </div>
+            {!hasKey && (
+              <button onClick={handleLinkKey} className="flex items-center gap-2 px-3 py-1.5 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg text-amber-700 dark:text-amber-400 text-[10px] font-black animate-pulse">
+                <Key size={12}/> 配置 AI 密钥
+              </button>
+            )}
           </div>
 
-          <div className="bg-slate-100/80 dark:bg-slate-800/50 p-1 rounded-[20px] flex mb-8">
-            <button onClick={() => { setIsLogin(true); setStatus(null); }} className={`flex-1 py-2.5 text-[13px] font-bold rounded-[16px] apple-transition ${isLogin ? 'bg-white dark:bg-slate-700 text-slate-900 dark:text-white shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}>登录</button>
-            <button onClick={() => { setIsLogin(false); setStatus(null); }} className={`flex-1 py-2.5 text-[13px] font-bold rounded-[16px] apple-transition ${!isLogin ? 'bg-white dark:bg-slate-700 text-slate-900 dark:text-white shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}>申请注册</button>
+          <div className="bg-slate-100 dark:bg-slate-800 p-1 rounded-2xl flex mb-8">
+            <button onClick={() => setIsLogin(true)} className={`flex-1 py-2 text-xs font-black rounded-xl transition-all ${isLogin ? 'bg-white dark:bg-slate-700 text-slate-900 dark:text-white shadow' : 'text-slate-400'}`}>登录</button>
+            <button onClick={() => setIsLogin(false)} className={`flex-1 py-2 text-xs font-black rounded-xl transition-all ${!isLogin ? 'bg-white dark:bg-slate-700 text-slate-900 dark:text-white shadow' : 'text-slate-400'}`}>注册</button>
           </div>
 
           <form onSubmit={handleSubmit} className="space-y-6">
-            <div className="space-y-1.5">
-              <label className="block text-[11px] font-black text-slate-400 uppercase tracking-widest ml-1">用户名</label>
-              <input type="text" value={username} onChange={(e) => setUsername(e.target.value)} required className="w-full px-5 py-4 rounded-2xl bg-[#F5F5F7] dark:bg-slate-800 border border-transparent focus:bg-white dark:focus:bg-slate-700 focus:border-emerald-500 focus:ring-[4px] focus:ring-emerald-500/10 outline-none apple-transition font-bold text-slate-900 dark:text-white" placeholder="Username"/>
+            <div>
+              <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">用户名</label>
+              <input type="text" value={username} onChange={e => setUsername(e.target.value)} required className="w-full px-5 py-4 rounded-xl bg-slate-50 dark:bg-slate-800 border-none font-bold text-slate-900 dark:text-white outline-none focus:ring-2 focus:ring-emerald-500/20" />
             </div>
-
-            <div className="space-y-1.5">
-              <label className="block text-[11px] font-black text-slate-400 uppercase tracking-widest ml-1">密码</label>
-              <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} required className="w-full px-5 py-4 rounded-2xl bg-[#F5F5F7] dark:bg-slate-800 border border-transparent focus:bg-white dark:focus:bg-slate-700 focus:border-emerald-500 focus:ring-[4px] focus:ring-emerald-500/10 outline-none apple-transition text-slate-900 dark:text-white font-bold" placeholder="••••••••"/>
+            <div>
+              <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">密码</label>
+              <input type="password" value={password} onChange={e => setPassword(e.target.value)} required className="w-full px-5 py-4 rounded-xl bg-slate-50 dark:bg-slate-800 border-none font-bold text-slate-900 dark:text-white outline-none focus:ring-2 focus:ring-emerald-500/20" />
             </div>
 
             {status && (
-              <div className={`p-4 rounded-2xl border flex items-start gap-3 animate-in slide-in-from-top-2 ${status.type === 'error' ? 'bg-rose-50 dark:bg-rose-900/20 border-rose-100 dark:border-rose-900/50 text-rose-600 dark:text-rose-400' : 'bg-amber-50 dark:bg-amber-900/20 border-amber-100 dark:border-amber-900/50 text-amber-600 dark:text-amber-400'}`}>
-                {status.type === 'error' ? <AlertCircle className="shrink-0" size={18} /> : <Clock className="shrink-0" size={18} />}
-                <p className="text-[12px] font-bold leading-relaxed">{status.msg}</p>
+              <div className={`p-4 rounded-xl text-xs font-bold flex gap-2 ${status.type === 'error' ? 'bg-rose-50 dark:bg-rose-900/20 text-rose-600' : 'bg-amber-50 dark:bg-amber-900/20 text-amber-600'}`}>
+                {status.type === 'error' ? <AlertCircle size={14}/> : <Clock size={14}/>}
+                {status.msg}
               </div>
             )}
 
-            <button type="submit" disabled={isProcessing || isLoading} className={`w-full py-4 rounded-2xl font-black apple-transition active:scale-[0.97] flex items-center justify-center gap-2 shadow-xl ${isProcessing || isLoading ? 'bg-slate-200 dark:bg-slate-800 text-slate-400' : 'bg-emerald-600 text-white hover:bg-emerald-700 shadow-emerald-200'}`}>
-              {(isProcessing || isLoading) ? (
-                <div className="w-5 h-5 border-2 border-slate-400 border-t-transparent rounded-full animate-spin"></div>
-              ) : (
-                <>{isLogin ? '登录工作台' : '提交注册申请'} <ChevronRight size={18} /></>
-              )}
+            <button type="submit" disabled={isProcessing} className="w-full py-5 rounded-2xl bg-slate-950 dark:bg-emerald-600 text-white font-black text-sm shadow-xl transition-all flex items-center justify-center gap-2 hover:opacity-90 active:scale-95">
+              {isProcessing ? '处理中...' : <>{isLogin ? '进入系统' : '提交申请'} <ChevronRight size={16}/></>}
             </button>
           </form>
-
-          <div className="mt-12 text-center">
-            <p className="text-[11px] text-slate-400 font-bold">
-              {siteConfig.footerCopyright}
-            </p>
-          </div>
         </div>
+      </div>
+      <div className="fixed bottom-6 text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2">
+        系统状态: 
+        {hasKey ? (
+          <span className="text-emerald-500 flex items-center gap-1">● AI 云端对齐</span>
+        ) : (
+          <span className="text-rose-500 flex items-center gap-1">○ AI 链路未激活 (环境变量无效)</span>
+        )}
       </div>
     </div>
   );
