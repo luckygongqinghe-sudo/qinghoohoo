@@ -91,6 +91,7 @@ export interface ScoringConfig {
   qft: Record<string, number>;
   smear: Record<string, number>;
   culture: Record<string, number>;
+  molecular: Record<string, number>; 
   symptoms: Record<string, number>;
   thresholds: RiskThreshold[];
 }
@@ -120,6 +121,7 @@ export interface Case {
   qftResult: string;
   smearResult: string;
   cultureResult: string;
+  molecularResult: string; 
   totalScore: number;
   riskLevel: string;
   suggestion: string;
