@@ -123,6 +123,7 @@ export interface Case {
   cultureResult: string;
   molecularResult: string; 
   totalScore: number;
+  originalScore?: number; 
   riskLevel: string;
   suggestion: string;
   creatorId: string;

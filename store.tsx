@@ -61,12 +61,6 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         if (configRes.data.site_config) {
           setSiteConfig({ ...DEFAULT_SITE_CONFIG, ...configRes.data.site_config });
         }
-      } else {
-        await supabase.from('configs').upsert({ 
-          id: 'current', 
-          scoring_config: DEFAULT_CONFIG, 
-          site_config: DEFAULT_SITE_CONFIG 
-        }, { onConflict: 'id' });
       }
 
       if (userRes.data) setUsers(userRes.data as User[]);
@@ -130,14 +124,18 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   };
 
   const addCase = async (newCase: Case) => {
+    setCases(prev => [newCase, ...prev]); // 立即本地更新
     await supabase.from('cases').insert({ id: newCase.id, data: newCase, creator_id: newCase.creatorId });
   };
 
   const updateCase = async (id: string, updatedCase: Case) => {
+    // 立即本地更新 UI
+    setCases(prev => prev.map(c => c.id === id ? updatedCase : c));
     await supabase.from('cases').update({ data: updatedCase }).eq('id', id);
   };
 
   const deleteCases = async (ids: string[]) => {
+    setCases(prev => prev.filter(c => !ids.includes(c.id)));
     await supabase.from('cases').delete().in('id', ids);
   };
 
@@ -150,21 +148,15 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   };
 
   const updateGlobalConfig = async (newScoring: ScoringConfig, newSite: SiteConfig) => {
-    const { error } = await supabase
+    setConfig(newScoring);
+    setSiteConfig(newSite);
+    await supabase
       .from('configs')
       .upsert({ 
         id: 'current', 
         scoring_config: newScoring, 
         site_config: newSite
       }, { onConflict: 'id' });
-    
-    if (error) {
-      console.error('Supabase Sync Error:', error);
-      throw new Error(error.message);
-    }
-    
-    setConfig(newScoring);
-    setSiteConfig(newSite);
   };
 
   const updateConfig = async (newConfig: ScoringConfig) => {
