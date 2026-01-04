@@ -11,37 +11,49 @@ export default async function handler(req: Request) {
     'Access-Control-Max-Age': '86400',
   };
 
-  // 1. 处理浏览器的 CORS 预检请求（这是解决免 VPN 跨域的关键）
   if (req.method === 'OPTIONS') {
     return new Response(null, { status: 204, headers: corsHeaders });
   }
 
   try {
     const url = new URL(req.url);
-    // 提取 API 路径，保持 /v1beta/... 等结构完整
-    const targetPath = url.pathname.replace(/^\/api\/proxy/, '');
-    const targetUrl = `https://generativelanguage.googleapis.com${targetPath}${url.search}`;
+    // 关键修正：将代理路径 /api/proxy/xxx 映射为 Google 的 /xxx
+    const targetPath = url.pathname.startsWith('/api/proxy') 
+      ? url.pathname.slice('/api/proxy'.length) 
+      : url.pathname;
+    
+    // 确保路径以 /v1 开头
+    const finalPath = targetPath.startsWith('/') ? targetPath : `/${targetPath}`;
+    const targetUrl = `https://generativelanguage.googleapis.com${finalPath}${url.search}`;
 
-    // 2. 深度伪装请求头
     const headers = new Headers(req.headers);
     headers.set('Host', 'generativelanguage.googleapis.com');
+    // 移除导致校验失败的元信息
     headers.delete('Origin');
     headers.delete('Referer');
 
-    const response = await fetch(targetUrl, {
+    // 处理请求体：对于 POST 请求，直接透传 body 流
+    const fetchOptions: RequestInit = {
       method: req.method,
       headers: headers,
-      body: req.method !== 'GET' && req.method !== 'HEAD' ? req.body : undefined,
-      // @ts-ignore - Edge Runtime 必须设置此项以支持流式传输
-      duplex: 'half',
-    });
+      redirect: 'follow'
+    };
 
-    // 3. 将 Google 的响应透传，并注入 CORS 许可
+    if (req.method !== 'GET' && req.method !== 'HEAD') {
+      fetchOptions.body = req.body;
+      // @ts-ignore
+      fetchOptions.duplex = 'half';
+    }
+
+    const response = await fetch(targetUrl, fetchOptions);
+
+    // 重新封装响应头，确保跨域许可被注入
     const responseHeaders = new Headers(response.headers);
     Object.entries(corsHeaders).forEach(([key, value]) => {
       responseHeaders.set(key, value);
     });
-    // 移除可能引起浏览器安全拦截的限制
+    
+    // 安全：删除 Google 可能下发的 CSP 限制
     responseHeaders.delete('content-security-policy');
 
     return new Response(response.body, {
@@ -49,7 +61,7 @@ export default async function handler(req: Request) {
       headers: responseHeaders,
     });
   } catch (error: any) {
-    return new Response(JSON.stringify({ error: 'Proxy Gateway Error', msg: error.message }), {
+    return new Response(JSON.stringify({ error: 'Proxy Gateway Failure', details: error.message }), {
       status: 500,
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });

@@ -3,17 +3,7 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useStore } from '../store';
 import { UserRole } from '../types';
-import { Activity, ShieldCheck, ChevronRight, AlertCircle, Clock, Key } from 'lucide-react';
-
-declare global {
-  interface AIStudio {
-    hasSelectedApiKey: () => Promise<boolean>;
-    openSelectKey: () => Promise<void>;
-  }
-  interface Window {
-    aistudio?: AIStudio;
-  }
-}
+import { Activity, ChevronRight, AlertCircle, Key, ExternalLink } from 'lucide-react';
 
 const LoginPage: React.FC = () => {
   const [username, setUsername] = useState('');
@@ -29,30 +19,20 @@ const LoginPage: React.FC = () => {
   useEffect(() => {
     if (currentUser) navigate('/dashboard/cases');
     
-    const checkKeyStatus = async () => {
-      // 检查环境变量名是否匹配 GEMINI_API_KEY
-      const envKeyExists = !!process.env.GEMINI_API_KEY && process.env.GEMINI_API_KEY !== "";
-      if (envKeyExists) {
-        setHasKey(true);
-      } else if (window.aistudio) {
-        const selected = await window.aistudio.hasSelectedApiKey();
+    const checkKey = async () => {
+      if ((window as any).aistudio) {
+        const selected = await (window as any).aistudio.hasSelectedApiKey();
         setHasKey(selected);
       }
     };
-    checkKeyStatus();
+    checkKey();
   }, [currentUser, navigate]);
 
-  const handleLinkKey = async () => {
-    if (window.aistudio) {
-      try {
-        await window.aistudio.openSelectKey();
-        setHasKey(true);
-        setStatus({ type: 'info', msg: 'AI 密钥已手动激活，系统功能已完整解锁。' });
-      } catch (err) {
-        setStatus({ type: 'error', msg: '密钥激活失败。' });
-      }
-    } else {
-      window.open('https://ai.google.dev/gemini-api/docs/billing', '_blank');
+  const handleOpenKeyDialog = async () => {
+    if ((window as any).aistudio) {
+      await (window as any).aistudio.openSelectKey();
+      setHasKey(true); // 假设选择成功并继续
+      setStatus({ type: 'info', msg: 'API Key 已连接，系统功能已解锁。' });
     }
   };
 
@@ -62,102 +42,90 @@ const LoginPage: React.FC = () => {
     setIsProcessing(true);
 
     try {
+      // 验证逻辑
+      const user = users.find(u => u.username === username);
       if (isLogin) {
-        const user = users.find(u => u.username === username);
-        if (user) {
-          if (user.password !== password) {
-            setStatus({ type: 'error', msg: '密码错误。' });
-          } else if (user.username !== 'qinghoohoo' && !user.approved) {
-            setStatus({ type: 'info', msg: '账户审核中，请联系管理员。' });
+        if (user && user.password === password) {
+          if (user.username !== 'qinghoohoo' && !user.approved) {
+            setStatus({ type: 'info', msg: '账户审核中...' });
           } else {
             setCurrentUser(user);
             navigate('/dashboard/cases');
           }
         } else {
-          setStatus({ type: 'error', msg: '用户不存在，请先注册。' });
+          setStatus({ type: 'error', msg: '用户名或密码错误' });
         }
       } else {
-        const exists = users.find(u => u.username === username);
-        if (exists) {
-          setStatus({ type: 'error', msg: '用户名已占用。' });
+        if (user) {
+          setStatus({ type: 'error', msg: '用户名已存在' });
         } else {
           await addUser(username, UserRole.USER, password, false);
-          setStatus({ type: 'info', msg: '注册成功，请等待审核通过。' });
+          setStatus({ type: 'info', msg: '申请提交成功，请等待审核' });
           setIsLogin(true);
         }
       }
     } catch (err) {
-      setStatus({ type: 'error', msg: '网络连接异常。' });
+      setStatus({ type: 'error', msg: '连接失败' });
     } finally {
       setIsProcessing(false);
     }
   };
 
   return (
-    <div className="min-h-screen bg-[#fbfbfd] dark:bg-slate-950 flex items-center justify-center p-6 font-sans">
-      <div className="w-full max-w-[1000px] bg-white dark:bg-slate-900 rounded-[48px] shadow-2xl border border-slate-100 dark:border-slate-800 flex flex-col md:flex-row overflow-hidden">
-        {/* 左侧：品牌信息 */}
-        <div className="md:w-2/5 bg-slate-950 p-12 flex flex-col justify-between text-white relative">
-          <div className="z-10">
-            <div className="bg-emerald-600 w-12 h-12 rounded-2xl flex items-center justify-center mb-8 shadow-lg shadow-emerald-500/20">
+    <div className="min-h-screen bg-[#fbfbfd] dark:bg-slate-950 flex items-center justify-center p-6">
+      <div className="w-full max-w-[900px] bg-white dark:bg-slate-900 rounded-[40px] shadow-2xl border border-slate-100 dark:border-slate-800 flex flex-col md:flex-row overflow-hidden">
+        <div className="md:w-5/12 bg-slate-950 p-12 text-white flex flex-col justify-between">
+          <div>
+            <div className="w-12 h-12 bg-emerald-600 rounded-2xl flex items-center justify-center mb-8 shadow-lg shadow-emerald-500/20">
               <Activity size={24}/>
             </div>
-            <h2 className="text-4xl font-black leading-tight tracking-tighter">TB-Scan<br/>数字化筛查</h2>
-            <p className="text-slate-400 text-sm mt-6 font-medium">临床决策辅助与病例追踪平台</p>
-          </div>
-
-          <div className="z-10 p-6 bg-white/5 rounded-3xl border border-white/10">
-            <div className="flex items-center gap-2 mb-3">
-              <div className={`w-2 h-2 rounded-full ${hasKey ? 'bg-emerald-500' : 'bg-amber-500 animate-pulse'}`}></div>
-              <span className="text-[10px] font-black uppercase tracking-widest text-slate-400">AI 服务状态</span>
-            </div>
-            <p className="text-[11px] text-slate-500 font-bold leading-relaxed">
-              {hasKey ? '全维度模型已对齐。' : '密钥未配置。请在右侧点击“激活 AI 服务”按钮进行配置。'}
-            </p>
+            <h2 className="text-3xl font-black leading-tight">TB-Scan<br/>精准医学门户</h2>
+            <p className="text-slate-400 text-xs mt-4 font-bold uppercase tracking-widest">Medical Decision Support</p>
           </div>
           
-          <div className="absolute top-0 right-0 w-64 h-64 bg-emerald-600/10 blur-[100px] rounded-full translate-x-1/2 -translate-y-1/2"></div>
+          <div className="space-y-4">
+            <div className={`p-5 rounded-2xl border ${hasKey ? 'bg-emerald-500/10 border-emerald-500/20' : 'bg-amber-500/10 border-amber-500/20'}`}>
+              <p className="text-[10px] font-black uppercase text-slate-400 mb-2">AI 引擎状态</p>
+              <p className="text-[11px] font-bold text-slate-200">
+                {hasKey ? '云端专家库已就绪 (免VPN模式)' : '需要选择有效的付费 API Key'}
+              </p>
+            </div>
+            <a href="https://ai.google.dev/gemini-api/docs/billing" target="_blank" rel="noreferrer" className="text-[10px] font-black text-slate-500 hover:text-emerald-500 flex items-center gap-1 transition-colors uppercase tracking-widest">
+              查看计费说明 <ExternalLink size={10} />
+            </a>
+          </div>
         </div>
 
-        {/* 右侧：操作区 */}
-        <div className="flex-1 p-12 lg:p-16 flex flex-col justify-center">
-          <div className="mb-10 flex items-center justify-between">
-            <div>
-              <h1 className="text-2xl font-black text-slate-900 dark:text-white">{isLogin ? '欢迎登录' : '医师注册'}</h1>
-              <p className="text-slate-500 text-[10px] font-black uppercase tracking-widest mt-1">Authorized Access Only</p>
-            </div>
-            {!hasKey && (
-              <button onClick={handleLinkKey} className="flex items-center gap-2 px-4 py-2 bg-amber-50 border border-amber-200 rounded-xl text-amber-700 text-[10px] font-black shadow-sm hover:bg-amber-100">
-                <Key size={14}/> 激活 AI 服务
-              </button>
-            )}
+        <div className="flex-1 p-12 lg:p-16">
+          <div className="flex justify-between items-center mb-10">
+            <h1 className="text-2xl font-black text-slate-900 dark:text-white">{isLogin ? '工作台登录' : '医师入驻'}</h1>
+            <button type="button" onClick={handleOpenKeyDialog} className="flex items-center gap-2 px-4 py-2 bg-slate-900 text-white rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-emerald-600 transition-all">
+              <Key size={14}/> 激活 AI 服务
+            </button>
           </div>
 
           <form onSubmit={handleSubmit} className="space-y-6">
             <div className="space-y-2">
-              <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">用户名</label>
-              <input type="text" value={username} onChange={e => setUsername(e.target.value)} required className="w-full px-6 py-4 rounded-2xl bg-slate-50 dark:bg-slate-800 border-none font-bold text-slate-900 dark:text-white outline-none focus:ring-2 focus:ring-emerald-500/20" />
+              <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">用户名</label>
+              <input type="text" value={username} onChange={e => setUsername(e.target.value)} required className="w-full px-6 py-4 rounded-2xl bg-slate-50 dark:bg-slate-800 border-none font-bold outline-none focus:ring-2 focus:ring-emerald-500/20" />
             </div>
             <div className="space-y-2">
-              <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">密码</label>
-              <input type="password" value={password} onChange={e => setPassword(e.target.value)} required className="w-full px-6 py-4 rounded-2xl bg-slate-50 dark:bg-slate-800 border-none font-bold text-slate-900 dark:text-white outline-none focus:ring-2 focus:ring-emerald-500/20" />
+              <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">密码</label>
+              <input type="password" value={password} onChange={e => setPassword(e.target.value)} required className="w-full px-6 py-4 rounded-2xl bg-slate-50 dark:bg-slate-800 border-none font-bold outline-none focus:ring-2 focus:ring-emerald-500/20" />
             </div>
 
             {status && (
               <div className={`p-4 rounded-2xl text-[11px] font-bold flex gap-3 ${status.type === 'error' ? 'bg-rose-50 text-rose-600' : 'bg-amber-50 text-amber-700'}`}>
-                {status.type === 'error' ? <AlertCircle size={14}/> : <Clock size={14}/>}
-                {status.msg}
+                <AlertCircle size={14}/> {status.msg}
               </div>
             )}
 
-            <div className="pt-4 space-y-4">
-              <button type="submit" disabled={isProcessing} className="w-full py-5 rounded-2xl bg-slate-950 dark:bg-emerald-600 text-white font-black text-sm shadow-xl flex items-center justify-center gap-2 hover:scale-[1.02] active:scale-95 transition-all">
-                {isProcessing ? '处理中...' : <>{isLogin ? '登录工作台' : '提交注册申请'} <ChevronRight size={16}/></>}
-              </button>
-              <button type="button" onClick={() => { setIsLogin(!isLogin); setStatus(null); }} className="w-full py-2 text-[10px] font-black text-slate-400 uppercase tracking-widest hover:text-slate-600">
-                {isLogin ? '没有账号？申请加入' : '已有账号？返回登录'}
-              </button>
-            </div>
+            <button type="submit" disabled={isProcessing} className="w-full py-5 rounded-2xl bg-emerald-600 text-white font-black text-sm shadow-xl shadow-emerald-500/20 hover:scale-[1.02] transition-all">
+              {isLogin ? '进入工作站' : '提交申请'}
+            </button>
+            <button type="button" onClick={() => setIsLogin(!isLogin)} className="w-full text-[10px] font-black text-slate-400 uppercase tracking-widest mt-2">
+              {isLogin ? '没有账号？申请加入' : '已有账号？返回登录'}
+            </button>
           </form>
         </div>
       </div>
