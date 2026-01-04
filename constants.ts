@@ -17,10 +17,14 @@ export const DEFAULT_CONFIG: ScoringConfig = {
     '结核痰菌阳性患者接触': 20
   },
   ctFeatures: {
-    '典型结核灶 (空洞/播散)': 25,
-    '不典型浸润': 10,
-    '多发结节': 15,
-    '胸腔积液': 12
+    '典型空洞 (Cavity)': 25,
+    '树芽征 (Tree-in-bud)': 20,
+    '中心结节/浸润影': 15,
+    '干酪性肺炎': 30,
+    '多发结节 (播散性)': 15,
+    '纵隔/肺门淋巴结肿大': 10,
+    '胸腔积液': 12,
+    '钙化/纤维化 (陈旧性)': -10
   },
   qft: {
     '阴性': 0,
@@ -60,9 +64,9 @@ export const DEFAULT_CONFIG: ScoringConfig = {
 };
 
 export const DEFAULT_SITE_CONFIG: SiteConfig = {
-  heroBadge: "专家级结核病精准筛查模型 v3.0",
+  heroBadge: "专家级结核病精准筛查模型 v3.1",
   heroTitle: "数字化、智能化\n结核病分层决策门户",
-  heroDescription: "集成 WHO 与中国结核病防治指南，通过病原学硬指标、影像学特征及 AI 协同推理，提供世界级的风险评估方案，支持全球在线实时同步。",
+  heroDescription: "集成 WHO 与中国结核病防治指南，通过病原学硬指标、多维影像学特征及 AI 协同推理，提供世界级的风险评估方案。",
   heroImageUrl: "https://images.unsplash.com/photo-1518152006812-edab29b069ac?auto=format&fit=crop&q=80&w=2000",
   primaryColor: "#059669",
   featuresTitle: "重塑临床筛查工作流",
@@ -72,7 +76,7 @@ export const DEFAULT_SITE_CONFIG: SiteConfig = {
   ctaText: "开始录入评估",
   
   features: [
-    { id: 'f1', title: "智能风险分级", description: "融合深度学习算法与临床指南，自动处理多维临床指标（含职业暴露），输出毫秒级诊断参考。", iconName: "ShieldCheck" },
+    { id: 'f1', title: "多维影像分析", description: "首创多CT征象叠加计分模型，真实反映临床病理，减少漏诊。", iconName: "ShieldCheck" },
     { id: 'f2', title: "结构化数据同步", description: "全生命周期病例追踪，从初筛到复诊，所有影像、实验室检测结果云端实时同步。", iconName: "Globe" },
     { id: 'f3', title: "AI Synergy 引擎", description: "深度解析临床笔记，识别逻辑矛盾，生成基于思维链的专家报告。", iconName: "BrainCircuit" }
   ],
@@ -85,13 +89,12 @@ export const DEFAULT_SITE_CONFIG: SiteConfig = {
 
   footerLinks: [],
   footerSupportItems: [
-    { id: 's1', label: '技术支持', value: 'qinghoohoo@qq.com' },
-    { id: 's2', label: '临床咨询', value: '15xxxx11970' }
+    { id: 's1', label: '技术支持', value: 'qinghoohoo@qq.com' }
   ],
-  footerCopyright: "© Q.he TOY-LAB. All Rights Reserved. Global Sync v3.0",
+  footerCopyright: "© Q.he TOY-LAB. All Rights Reserved. v3.1",
   footerIcp: "TB-SCAN-NETWORK-IC001",
   inputPageTitle: "临床专家评估录入",
-  inputPageDesc: "整合病原学检测与流行病学背景（含职业/环境暴露），实现秒级风险辅助决策。",
+  inputPageDesc: "整合病原学检测与多维影像学特征，实现秒级风险辅助决策。",
   summaryPageTitle: "数据透视与分析中心",
   summaryPageDesc: "跨维度病例分布统计与 AI 协同推理报告管理。",
   adminPageTitle: "全站管理与管控中心",

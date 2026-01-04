@@ -131,7 +131,7 @@ export interface Case {
   history: string[];
   symptoms: string[];
   exposure: string;
-  ctFeature: string;
+  ctFeatures: string[]; // 核心升级：从单选改为多选数组
   ctScore: number;
   qftResult: string;
   smearResult: string;

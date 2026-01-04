@@ -1,8 +1,7 @@
-
 import React, { useState, useEffect, useRef } from 'react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
 import { useStore } from '../store.tsx';
-import { Case, AiInference, ImpactFactor } from '../types.ts';
+import { Case, AiInference } from '../types.ts';
 import { GoogleGenAI, Type } from "@google/genai";
 import { 
   Calculator, 
@@ -10,21 +9,20 @@ import {
   Sparkles,
   BrainCircuit,
   Loader2,
-  AlertCircle,
   Scale,
   Ruler,
-  AlertTriangle,
   User,
+  Users,
   ChevronRight,
   FlaskConical,
-  Target,
-  FileText,
-  Users,
-  CheckCircle2,
-  Eye,
   History,
-  ShieldCheck,
-  Zap
+  Zap,
+  Layers,
+  CheckCircle2,
+  AlertCircle,
+  Activity,
+  TrendingUp,
+  Info
 } from 'lucide-react';
 
 const CaseInputPage: React.FC = () => {
@@ -43,7 +41,7 @@ const CaseInputPage: React.FC = () => {
     history: [] as string[],
     symptoms: [] as string[],
     exposure: '无接触史',
-    ctFeature: '无显著特征',
+    ctFeatures: [] as string[],
     qft: '阴性',
     smear: '阴性',
     culture: '阴性',
@@ -72,7 +70,7 @@ const CaseInputPage: React.FC = () => {
           history: Array.isArray(c.history) ? c.history : [],
           symptoms: Array.isArray(c.symptoms) ? c.symptoms : [],
           exposure: c.exposure || '无接触史',
-          ctFeature: c.ctFeature || '无显著特征',
+          ctFeatures: Array.isArray(c.ctFeatures) ? c.ctFeatures : [],
           qft: c.qftResult || '阴性',
           smear: c.smearResult || '阴性',
           culture: c.cultureResult || '阴性',
@@ -99,7 +97,14 @@ const CaseInputPage: React.FC = () => {
     formData.history.forEach(h => score += config.history[h] || 0);
     formData.symptoms.forEach(s => score += config.symptoms[s] || 0);
     score += config.exposure[formData.exposure] || 0;
-    score += config.ctFeatures[formData.ctFeature] || 0;
+    
+    if (formData.ctFeatures.length > 0) {
+      const ctScores = formData.ctFeatures.map(f => config.ctFeatures[f] || 0).sort((a, b) => b - a);
+      const mainScore = ctScores[0];
+      const othersScore = ctScores.slice(1).reduce((acc, curr) => acc + (curr * 0.5), 0);
+      score += (mainScore + othersScore);
+    }
+
     score += config.qft[formData.qft] || 0;
     score += config.smear[formData.smear] || 0;
     score += config.culture[formData.culture] || 0;
@@ -124,54 +129,51 @@ const CaseInputPage: React.FC = () => {
       suggestion = match?.suggestion || '当前综合评估风险较低。';
     }
 
-    setTotalScore(score);
+    setTotalScore(Math.round(score));
     setRisk({ level, suggestion });
   }, [formData, config, bmi]);
 
-  const toggleItem = (field: 'history' | 'symptoms', val: string) => {
-    setFormData(prev => ({
-      ...prev,
-      [field]: prev[field].includes(val) ? prev[field].filter(v => v !== val) : [...prev[field], val]
-    }));
+  const toggleItem = (field: 'history' | 'symptoms' | 'ctFeatures', val: string) => {
+    setFormData(prev => {
+      const currentList = prev[field] as string[];
+      return {
+        ...prev,
+        [field]: currentList.includes(val) 
+          ? currentList.filter(v => v !== val) 
+          : [...currentList, val]
+      };
+    });
   };
 
   const runAiSynergy = async () => {
     setAiError(null);
     setIsAiProcessing(true);
     try {
+      // Always initialize with named parameter and direct process.env.API_KEY reference.
       const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+      const prompt = `你是一位结核病防治专家。请分析以下病例的多维数据，并使用专业中文回答所有字段。
+      受检者姓名：${formData.name}, 年龄：${formData.age}, BMI：${bmi}。
+      多重CT影像征象：[${formData.ctFeatures.join(', ')}]。
+      实验室检测指标：分子检测(Xpert) ${formData.molecular}, 痰涂片 ${formData.smear}, 痰培养 ${formData.culture}, 免疫学QFT ${formData.qft}。
+      临床备注：${rawNotes}。
       
-      const examplesPrompt = config.fewShotExamples?.map(ex => `
-        【参考案例场景】：${ex.scenario}
-        【专家逻辑】：${ex.reasoning}
-        【修正得分】：${ex.fusionScore}
-      `).join('\n') || '';
-
-      const prompt = `你是一位结核病防治专家。请基于以下病例数据进行深度协同分析。
+      请执行以下任务并以 JSON 格式返回：
+      1. 执行【多模型逻辑追踪】逻辑审计。
+      2. 识别临床数据间的冲突 (anomalies)。
+      3. 计算综合修正后的协同分值 (fusionScore)。
+      4. 为每个特征分配推理权重 (impactFactors)，包含 feature, impact, reason。
+      5. 提供基于最新指南的【临床协议化处置建议】(suggestedAction)。
+      6. 生成专家思维逻辑链 (reasoning)。
+      7. 给出一个 0-1 之间的置信度评分 (confidence)。
       
-      ${examplesPrompt ? '请参考以下专家级推导范式：' + examplesPrompt : ''}
-
-      【当前受检者数据】：
-      姓名 ${formData.name}, 性别 ${formData.gender}, 年龄 ${formData.age}
-      指征：BMI ${bmi}, 暴露史 ${formData.exposure}, 既往史 ${formData.history.join(',')}, 症状 ${formData.symptoms.join(',')}
-      检查：CT特征 ${formData.ctFeature}, QFT ${formData.qft}, 涂片 ${formData.smear}, 培养 ${formData.culture}, 分子检测 ${formData.molecular}
-      临床笔记：${rawNotes || '无'}
-      
-      【核心任务】：
-      1. anomalies: 数组。识别临床指征与检测结果之间的非典型或矛盾点。
-      2. reasoning: 详细的推导逻辑链。
-      3. fusionScore: 综合分（指南原始分 ${totalScore}）。
-      4. impactFactors: 数组。列出对修正得分影响最大的3-5个因素，包含 feature(名称), impact(权重数值如+15或-10), reason(原因简述)。
-      5. confidence: 0.0-1.0 置信度。
-      
-      必须返回标准 JSON。`;
+      所有文本内容必须使用专业中文。`;
       
       const res = await ai.models.generateContent({
         model: 'gemini-3-pro-preview',
         contents: [{ parts: [{ text: prompt }] }],
         config: {
           responseMimeType: "application/json",
-          thinkingConfig: { thinkingBudget: 24576 },
+          thinkingConfig: { thinkingBudget: 15000 },
           responseSchema: {
             type: Type.OBJECT,
             properties: {
@@ -197,9 +199,11 @@ const CaseInputPage: React.FC = () => {
           }
         }
       });
-      setAiResult(JSON.parse(res.text || '{}'));
+      // Correctly access text property from GenerateContentResponse.
+      const jsonStr = res.text.trim();
+      setAiResult(JSON.parse(jsonStr || '{}'));
     } catch (e: any) {
-      setAiError("AI 协同引擎暂时不可用。");
+      setAiError("AI 协同引擎暂时不可用，请稍后重试。");
     } finally { setIsAiProcessing(false); }
   };
 
@@ -218,8 +222,8 @@ const CaseInputPage: React.FC = () => {
       history: formData.history,
       symptoms: formData.symptoms,
       exposure: formData.exposure,
-      ctFeature: formData.ctFeature,
-      ctScore: config.ctFeatures[formData.ctFeature] || 0,
+      ctFeatures: formData.ctFeatures,
+      ctScore: 0,
       qftResult: formData.qft,
       smearResult: formData.smear,
       cultureResult: formData.culture,
@@ -244,7 +248,7 @@ const CaseInputPage: React.FC = () => {
         </div>
         <div>
           <h1 className="text-3xl font-black text-slate-900 dark:text-white tracking-tighter uppercase">临床评估录入</h1>
-          <p className="text-[10px] text-slate-400 font-black tracking-widest uppercase mt-1">Industrial-Grade Clinical Decision Logic</p>
+          <p className="text-[10px] text-slate-400 font-black tracking-widest uppercase mt-1">Multi-Sign Imaging Analysis Matrix</p>
         </div>
       </div>
 
@@ -271,14 +275,8 @@ const CaseInputPage: React.FC = () => {
                   ))}
                 </div>
               </div>
-              <div className="md:col-span-2 space-y-2">
-                <Label><Ruler size={14} className="inline mr-1"/> 身高 (cm)</Label>
-                <input required type="number" step="0.1" value={formData.height} onChange={e => setFormData({...formData, height: e.target.value})} className="w-full px-6 py-4 rounded-2xl bg-slate-50 dark:bg-slate-800 border-none font-bold text-slate-900 dark:text-white outline-none shadow-inner" />
-              </div>
-              <div className="md:col-span-2 space-y-2">
-                <Label><Scale size={14} className="inline mr-1"/> 体重 (kg)</Label>
-                <input required type="number" step="0.1" value={formData.weight} onChange={e => setFormData({...formData, weight: e.target.value})} className="w-full px-6 py-4 rounded-2xl bg-slate-50 dark:bg-slate-800 border-none font-bold text-slate-900 dark:text-white outline-none shadow-inner" />
-              </div>
+              <div className="md:col-span-2 space-y-2"><Label><Ruler size={14} className="inline mr-1"/> 身高 (cm)</Label><input required type="number" step="0.1" value={formData.height} onChange={e => setFormData({...formData, height: e.target.value})} className="w-full px-6 py-4 rounded-2xl bg-slate-50 dark:bg-slate-800 border-none font-bold text-slate-900 dark:text-white outline-none shadow-inner" /></div>
+              <div className="md:col-span-2 space-y-2"><Label><Scale size={14} className="inline mr-1"/> 体重 (kg)</Label><input required type="number" step="0.1" value={formData.weight} onChange={e => setFormData({...formData, weight: e.target.value})} className="w-full px-6 py-4 rounded-2xl bg-slate-50 dark:bg-slate-800 border-none font-bold text-slate-900 dark:text-white outline-none shadow-inner" /></div>
             </div>
           </section>
 
@@ -293,9 +291,32 @@ const CaseInputPage: React.FC = () => {
             </div>
           </section>
 
+          <section className="bg-white dark:bg-slate-900 p-10 rounded-[48px] shadow-xl border border-slate-50 dark:border-slate-800 space-y-10">
+            <h3 className="text-sm font-black text-slate-900 dark:text-white flex items-center gap-3 border-b border-slate-50 dark:border-slate-800 pb-8">
+              <Layers size={20} className="text-indigo-500" /> 03. 影像学特征 (CT 多征象并存)
+            </h3>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {Object.keys(config.ctFeatures).map(f => (
+                <button 
+                  key={f} 
+                  type="button" 
+                  onClick={() => toggleItem('ctFeatures', f)} 
+                  className={`p-6 rounded-[32px] border-2 text-left transition-all flex items-center justify-between group ${formData.ctFeatures.includes(f) ? 'bg-indigo-600 border-indigo-600 text-white shadow-xl scale-[1.02]' : 'bg-slate-50 dark:bg-slate-800 border-transparent text-slate-500 hover:bg-slate-100'}`}
+                >
+                  <div className="flex flex-col">
+                    <span className="font-black text-xs">{f}</span>
+                    <span className="text-[8px] opacity-60 font-bold tracking-widest mt-1 uppercase">指南权重: {config.ctFeatures[f]}分</span>
+                  </div>
+                  {formData.ctFeatures.includes(f) ? <CheckCircle2 size={18} /> : <div className="w-5 h-5 rounded-full border-2 border-slate-200" />}
+                </button>
+              ))}
+            </div>
+            <p className="text-[10px] text-slate-400 font-bold italic">专家备注：系统已启用“Max + 0.5 * Others”科学算法，同时勾选多个征象将自动处理权重衰减，避免分值虚高。</p>
+          </section>
+
           <section className="bg-slate-950 p-10 rounded-[48px] shadow-2xl space-y-12 text-white">
             <h3 className="text-xs font-black text-rose-500 uppercase tracking-[0.3em] flex items-center gap-3 border-b border-white/5 pb-6">
-              <FlaskConical size={20} /> 03. 实验室指标
+              <FlaskConical size={20} /> 04. 实验室指标
             </h3>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
               <div className="space-y-4">
@@ -333,20 +354,6 @@ const CaseInputPage: React.FC = () => {
             </div>
           </section>
 
-          <section className="bg-white dark:bg-slate-900 p-10 rounded-[48px] shadow-xl border border-slate-50 dark:border-slate-800 space-y-10">
-            <h3 className="text-sm font-black text-slate-900 dark:text-white flex items-center gap-3 border-b border-slate-50 dark:border-slate-800 pb-8">
-              <Eye size={20} className="text-indigo-500" /> 04. 影像学特征 (CT)
-            </h3>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {Object.keys(config.ctFeatures).map(f => (
-                <button key={f} type="button" onClick={() => setFormData({...formData, ctFeature: f})} className={`p-6 rounded-[32px] border-2 text-left transition-all flex items-center justify-between group ${formData.ctFeature === f ? 'bg-indigo-600 border-indigo-600 text-white shadow-xl' : 'bg-slate-50 dark:bg-slate-800 border-transparent text-slate-500 hover:bg-slate-100'}`}>
-                  <span className="font-black text-xs">{f}</span>
-                  {formData.ctFeature === f && <CheckCircle2 size={18} />}
-                </button>
-              ))}
-            </div>
-          </section>
-
           <section className="bg-white dark:bg-slate-900 p-10 rounded-[48px] shadow-xl border border-slate-50 dark:border-slate-800 space-y-12">
             <h3 className="text-sm font-black text-slate-900 dark:text-white flex items-center gap-3 border-b border-slate-50 dark:border-slate-800 pb-8">
               <History size={20} className="text-amber-500" /> 05. 既往史与症状
@@ -372,7 +379,7 @@ const CaseInputPage: React.FC = () => {
           </section>
 
           <button type="submit" disabled={submitted} className="w-full py-8 rounded-[40px] font-black text-xl text-white shadow-2xl transition-all flex items-center justify-center gap-4 bg-slate-950 hover:scale-[1.01]">
-            <ChevronRight size={24}/> {submitted ? '正在保存核心档案...' : '提交专家协议评估'}
+            <ChevronRight size={24}/> {submitted ? '正在保存档案...' : '提交评估并存档'}
           </button>
         </form>
 
@@ -385,7 +392,7 @@ const CaseInputPage: React.FC = () => {
                 <span className={`text-4xl font-black ${bmi > 0 && bmi < 18.5 ? 'text-amber-500' : 'text-emerald-500'}`}>{bmi || '--'}</span>
               </div>
               <div className="p-8 bg-slate-50 dark:bg-slate-800 rounded-[32px]">
-                <span className="text-[9px] font-black text-slate-400 uppercase block mb-2">Guideline Score</span>
+                <span className="text-[9px] font-black text-slate-400 uppercase block mb-2">指南分值</span>
                 <span className="text-4xl font-black text-emerald-500">{totalScore}</span>
               </div>
             </div>
@@ -395,103 +402,106 @@ const CaseInputPage: React.FC = () => {
             </div>
           </div>
 
-          <div className="bg-slate-950 p-12 rounded-[48px] shadow-2xl text-white overflow-hidden relative">
-            <div className="absolute top-0 right-0 p-4 opacity-10">
-              <Zap size={100} />
-            </div>
-            
+          <div className="bg-slate-950 p-10 rounded-[48px] shadow-2xl text-white overflow-hidden relative">
+            <div className="absolute top-0 right-0 p-4 opacity-10"><Zap size={100} /></div>
             <div className="flex items-center justify-between mb-10 relative z-10">
-              <h3 className="text-[10px] font-black text-indigo-400 uppercase tracking-[0.2em] flex items-center gap-3"><BrainCircuit size={20} /> Synergy 专家协同推理</h3>
+              <h3 className="text-[10px] font-black text-indigo-400 uppercase tracking-[0.2em] flex items-center gap-3"><BrainCircuit size={20} /> AI 专家协同审计</h3>
               <Sparkles size={20} className="text-indigo-400 animate-pulse" />
             </div>
             
-            <textarea value={rawNotes} onChange={e => setRawNotes(e.target.value)} placeholder="记录病例特殊细节，AI 将深度挖掘指征与检测结果间的矛盾逻辑..." className="w-full h-32 bg-white/5 border border-white/10 rounded-[32px] p-7 text-xs font-bold text-white outline-none mb-6 focus:border-indigo-400" />
-            
-            <button type="button" onClick={runAiSynergy} disabled={isAiProcessing} className="w-full py-6 rounded-2xl bg-indigo-600 text-white font-black text-xs uppercase tracking-widest flex items-center justify-center gap-4 hover:scale-[1.02] transition-all shadow-xl shadow-indigo-500/20">
-              {isAiProcessing ? <Loader2 className="animate-spin" size={20}/> : <BrainCircuit size={20}/>}
-              启动 AI 协同分析
-            </button>
-            
-            {aiResult && (
-              <div className="mt-10 pt-10 border-t border-white/10 space-y-8 animate-in fade-in relative z-10">
-                <div className="flex items-center justify-between mb-2">
-                  <div className="flex items-center gap-2">
-                    <ShieldCheck size={14} className="text-emerald-400" />
-                    <span className="text-[10px] font-black uppercase text-slate-400">逻辑审计置信度</span>
+            <div className="space-y-6 relative z-10">
+              <div className="space-y-3">
+                <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-1">临床补充笔记 (辅助审计)</label>
+                <textarea 
+                  value={rawNotes} 
+                  onChange={e => setRawNotes(e.target.value)} 
+                  placeholder="记录如：用药史、支气管镜表现、接触者排查详情等..." 
+                  className="w-full h-32 bg-white/5 border border-white/10 rounded-[32px] p-7 text-xs font-bold text-white outline-none focus:border-indigo-400" 
+                />
+              </div>
+
+              <button 
+                type="button" 
+                onClick={runAiSynergy} 
+                disabled={isAiProcessing} 
+                className="w-full py-6 rounded-2xl bg-indigo-600 text-white font-black text-xs uppercase tracking-widest flex items-center justify-center gap-4 hover:scale-[1.02] transition-all shadow-xl shadow-indigo-600/20"
+              >
+                {isAiProcessing ? <Loader2 className="animate-spin" size={20}/> : <BrainCircuit size={20}/>} 
+                {aiResult ? '重新启动逻辑审计' : '启动 AI 逻辑审计'}
+              </button>
+
+              {aiError && (
+                <div className="p-4 bg-rose-500/10 border border-rose-500/20 rounded-2xl flex gap-3 text-rose-400 text-[10px] font-bold">
+                  <AlertCircle size={14} /> {aiError}
+                </div>
+              )}
+
+              {aiResult && (
+                <div className="space-y-8 animate-in fade-in slide-in-from-top-4 duration-500">
+                  <div className="flex items-center justify-around bg-white/5 rounded-[2.5rem] p-8 border border-white/5">
+                    <div className="text-center">
+                      <span className="text-[8px] font-black text-slate-500 uppercase block mb-2">决策置信度</span>
+                      <span className="text-2xl font-black text-emerald-400">{(aiResult.confidence * 100).toFixed(0)}%</span>
+                    </div>
+                    <div className="h-10 w-px bg-white/10"></div>
+                    <div className="text-center">
+                      <span className="text-[8px] font-black text-slate-500 uppercase block mb-2">协同修正分</span>
+                      <span className="text-2xl font-black text-indigo-400">{aiResult.fusionScore}</span>
+                    </div>
                   </div>
-                  <span className={`text-[10px] font-black ${aiResult.confidence < 0.7 ? 'text-rose-400' : 'text-emerald-400'}`}>
-                    {(aiResult.confidence * 100).toFixed(0)}%
-                  </span>
-                </div>
-                <div className="w-full bg-white/5 h-1.5 rounded-full overflow-hidden mb-8">
-                  <div className={`h-full transition-all duration-1000 ${aiResult.confidence < 0.7 ? 'bg-rose-500' : 'bg-emerald-500'}`} style={{ width: `${aiResult.confidence * 100}%` }}></div>
-                </div>
 
-                {aiResult.confidence < 0.7 && (
-                  <div className="bg-rose-600/10 border border-rose-500/20 p-5 rounded-2xl flex items-center gap-4 animate-pulse">
-                    <AlertTriangle size={20} className="text-rose-500 shrink-0" />
-                    <p className="text-[10px] font-black text-rose-200 uppercase tracking-widest leading-relaxed">AI 置信度不足，本建议必须经由两名以上临床专家复核</p>
+                  <div className="space-y-4">
+                    <h5 className="text-[9px] font-black text-indigo-400 uppercase tracking-[0.2em] flex items-center gap-2">
+                      <Stethoscope size={14} /> 协议化处置建议
+                    </h5>
+                    <div className="bg-emerald-500/10 border border-emerald-500/20 p-5 rounded-2xl">
+                      <p className="text-[11px] font-bold text-emerald-50 leading-relaxed">{aiResult.suggestedAction}</p>
+                    </div>
                   </div>
-                )}
 
-                <div className="grid grid-cols-2 gap-4">
-                   <div className="bg-white/5 p-4 rounded-2xl border border-white/5">
-                      <p className="text-[8px] font-black text-white/40 uppercase flex items-center gap-1"><FileText size={10} /> Guideline Score</p>
-                      <p className="text-2xl font-black text-white">{totalScore}</p>
-                   </div>
-                   <div className="bg-emerald-500/10 p-4 rounded-2xl border border-emerald-500/20">
-                      <p className="text-[8px] font-black text-emerald-400 uppercase flex items-center gap-1"><Target size={10} /> Fusion Score</p>
-                      <p className="text-2xl font-black text-emerald-400">{aiResult.fusionScore}</p>
-                   </div>
-                </div>
-
-                {/* 影响因子可视化 */}
-                <div className="space-y-4">
-                  <span className="text-[9px] font-black text-slate-400 uppercase block tracking-widest mb-2">AI 调分影响因子 (Impact)</span>
-                  <div className="space-y-3">
-                    {aiResult.impactFactors?.map((f, i) => (
-                      <div key={i} className="bg-white/5 p-4 rounded-2xl border border-white/5 flex flex-col gap-2">
-                        <div className="flex justify-between items-center">
-                          <span className="text-[11px] font-black text-slate-200">{f.feature}</span>
-                          <span className={`text-[10px] font-black px-2 py-0.5 rounded-full ${f.impact >= 0 ? 'bg-rose-500/20 text-rose-400' : 'bg-emerald-500/20 text-emerald-400'}`}>
-                            {f.impact >= 0 ? `+${f.impact}` : f.impact}
-                          </span>
+                  <div className="space-y-4">
+                    <h5 className="text-[9px] font-black text-indigo-400 uppercase tracking-[0.2em] flex items-center gap-2">
+                      <Activity size={14} /> 推理权重细节审计
+                    </h5>
+                    <div className="space-y-3">
+                      {aiResult.impactFactors?.map((f, i) => (
+                        <div key={i} className="flex flex-col gap-1 border-l-2 border-indigo-500/30 pl-4 py-1">
+                          <div className="flex justify-between items-center text-[10px] font-black">
+                            <span className="text-slate-300">{f.feature}</span>
+                            <span className={f.impact >= 0 ? 'text-rose-400' : 'text-emerald-400'}>{f.impact > 0 ? `+${f.impact}` : f.impact} 分</span>
+                          </div>
+                          <p className="text-[9px] text-slate-500 font-bold leading-relaxed">{f.reason}</p>
                         </div>
-                        <p className="text-[10px] text-slate-500 italic leading-snug">{f.reason}</p>
-                      </div>
-                    ))}
+                      ))}
+                    </div>
                   </div>
-                </div>
 
-                <div className="space-y-6">
                   {aiResult.anomalies && aiResult.anomalies.length > 0 && (
-                    <div className="bg-rose-500/10 p-6 rounded-3xl border border-rose-500/20">
-                      <span className="text-[9px] font-black text-rose-400 uppercase block mb-3 flex items-center gap-2">
-                        <AlertTriangle size={14} /> 逻辑矛盾分析
-                      </span>
+                    <div className="space-y-4">
+                      <h5 className="text-[9px] font-black text-rose-500 uppercase tracking-[0.2em] flex items-center gap-2">
+                        <AlertCircle size={14} /> 逻辑冲突审计
+                      </h5>
                       <ul className="space-y-2">
                         {aiResult.anomalies.map((a, i) => (
-                          <li key={i} className="text-[11px] text-slate-100 font-medium flex items-start gap-2 italic leading-relaxed">
-                            <span className="mt-1.5 w-1 h-1 rounded-full bg-rose-500 shrink-0"></span>
-                            {a}
+                          <li key={i} className="text-[10px] font-bold text-rose-200 bg-rose-500/5 px-4 py-2 rounded-xl flex gap-2">
+                            <span className="text-rose-500">•</span> {a}
                           </li>
                         ))}
                       </ul>
                     </div>
                   )}
 
-                  <div className="bg-white/5 p-6 rounded-3xl border border-white/5">
-                    <span className="text-[9px] font-black text-indigo-400 uppercase block mb-2">思维链逻辑推导</span>
-                    <p className="text-[11px] text-slate-200 leading-relaxed font-medium">“{aiResult.reasoning}”</p>
-                  </div>
-                  
-                  <div className="bg-emerald-500/10 p-6 rounded-3xl border border-emerald-500/20">
-                    <span className="text-[9px] font-black text-emerald-400 uppercase block mb-2">临床协同建议</span>
-                    <p className="text-[11px] text-emerald-50 font-bold leading-relaxed">{aiResult.suggestedAction}</p>
+                  <div className="space-y-4">
+                    <h5 className="text-[9px] font-black text-indigo-400 uppercase tracking-[0.2em] flex items-center gap-2">
+                      <Activity size={14} /> 专家思维逻辑链
+                    </h5>
+                    <p className="text-[10px] font-bold text-slate-400 leading-[1.8] italic bg-white/5 p-6 rounded-2xl border border-white/5">
+                      "{aiResult.reasoning}"
+                    </p>
                   </div>
                 </div>
-              </div>
-            )}
+              )}
+            </div>
           </div>
         </div>
       </div>
