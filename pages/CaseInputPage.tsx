@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useRef } from 'react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
 import { useStore } from '../store.tsx';
@@ -136,7 +137,12 @@ const CaseInputPage: React.FC = () => {
     setAiError(null);
     setIsAiProcessing(true);
     try {
-      const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+      // 核心改动：通过 Vercel Rewrites 代理 API 请求，解决国内访问限制
+      const ai = new GoogleGenAI({ 
+        apiKey: process.env.API_KEY,
+        baseUrl: `${window.location.origin}/api/proxy`
+      });
+      
       const prompt = `你是一位结核病防治专家。请基于以下病例数据进行深度协同分析，并【重点识别】临床指征与检测结果之间的非典型或矛盾点（例如：病原学阴性但临床症状极重且BMI暴跌；或强暴露史且CT典型但痰检阴性）。
       
       【基本信息】：姓名 ${formData.name}, 性别 ${formData.gender}, 年龄 ${formData.age}
@@ -172,7 +178,8 @@ const CaseInputPage: React.FC = () => {
       });
       setAiResult(JSON.parse(res.text || '{}'));
     } catch (e: any) {
-      setAiError("AI 协同引擎暂时不可用。");
+      setAiError("AI 协同引擎连接异常，请确保 API 密钥正确或稍后再试。");
+      console.error("AI Proxy Error:", e);
     } finally { setIsAiProcessing(false); }
   };
 
