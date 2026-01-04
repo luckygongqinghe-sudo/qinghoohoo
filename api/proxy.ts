@@ -4,41 +4,54 @@ export const config = {
 };
 
 export default async function handler(req: Request) {
-  const url = new URL(req.url);
-  
-  // 提取原始请求路径并拼接到 Google API 域名
-  // 例如：/api/proxy/v1beta/models/... -> https://generativelanguage.googleapis.com/v1beta/models/...
-  const targetPath = url.pathname.replace(/^\/api\/proxy/, '');
-  const targetUrl = `https://generativelanguage.googleapis.com${targetPath}${url.search}`;
+  const corsHeaders = {
+    'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Methods': 'GET, POST, OPTIONS, PUT, DELETE',
+    'Access-Control-Allow-Headers': 'Content-Type, x-goog-api-key, x-goog-api-client, authorization',
+    'Access-Control-Max-Age': '86400',
+  };
 
-  // 复制原始请求头，但需要覆盖 Host 确保 SSL 握手成功
-  const headers = new Headers(req.headers);
-  headers.set('Host', 'generativelanguage.googleapis.com');
-  // 移除可能导致冲突的 origin 头部
-  headers.delete('origin');
-  headers.delete('referer');
+  // 1. 处理浏览器的 CORS 预检请求（这是解决免 VPN 跨域的关键）
+  if (req.method === 'OPTIONS') {
+    return new Response(null, { status: 204, headers: corsHeaders });
+  }
 
   try {
+    const url = new URL(req.url);
+    // 提取 API 路径，保持 /v1beta/... 等结构完整
+    const targetPath = url.pathname.replace(/^\/api\/proxy/, '');
+    const targetUrl = `https://generativelanguage.googleapis.com${targetPath}${url.search}`;
+
+    // 2. 深度伪装请求头
+    const headers = new Headers(req.headers);
+    headers.set('Host', 'generativelanguage.googleapis.com');
+    headers.delete('Origin');
+    headers.delete('Referer');
+
     const response = await fetch(targetUrl, {
       method: req.method,
       headers: headers,
-      body: req.method !== 'GET' && req.method !== 'HEAD' ? await req.blob() : undefined,
+      body: req.method !== 'GET' && req.method !== 'HEAD' ? req.body : undefined,
+      // @ts-ignore - Edge Runtime 必须设置此项以支持流式传输
+      duplex: 'half',
     });
 
-    // 创建新的响应头，注入 CORS 允许
-    const newHeaders = new Headers(response.headers);
-    newHeaders.set('Access-Control-Allow-Origin', '*');
-    newHeaders.set('Access-Control-Allow-Methods', 'GET, POST, OPTIONS, DELETE, PUT');
-    newHeaders.set('Access-Control-Allow-Headers', 'Content-Type, x-goog-api-key, x-goog-api-client');
+    // 3. 将 Google 的响应透传，并注入 CORS 许可
+    const responseHeaders = new Headers(response.headers);
+    Object.entries(corsHeaders).forEach(([key, value]) => {
+      responseHeaders.set(key, value);
+    });
+    // 移除可能引起浏览器安全拦截的限制
+    responseHeaders.delete('content-security-policy');
 
     return new Response(response.body, {
       status: response.status,
-      headers: newHeaders,
+      headers: responseHeaders,
     });
-  } catch (error) {
-    return new Response(JSON.stringify({ error: 'Proxy Request Failed', details: error.message }), {
+  } catch (error: any) {
+    return new Response(JSON.stringify({ error: 'Proxy Gateway Error', msg: error.message }), {
       status: 500,
-      headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' },
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
   }
 }
