@@ -30,8 +30,8 @@ const LoginPage: React.FC = () => {
     if (currentUser) navigate('/dashboard/cases');
     
     const checkKeyStatus = async () => {
-      // 检查环境变量名是否匹配 GEMINI_API_KEY
-      const envKeyExists = !!process.env.GEMINI_API_KEY && process.env.GEMINI_API_KEY !== "";
+      // 统一使用 API_KEY
+      const envKeyExists = !!process.env.API_KEY && process.env.API_KEY !== "";
       if (envKeyExists) {
         setHasKey(true);
       } else if (window.aistudio) {
