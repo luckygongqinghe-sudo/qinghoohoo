@@ -1,7 +1,7 @@
 
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { createClient } from '@supabase/supabase-js';
-import { User, Case, ScoringConfig, SiteConfig, UserRole, AppState, ThemeMode } from './types.ts';
+import { User, Case, ScoringConfig, SiteConfig, UserRole, AppState, ThemeMode, BatchStatus } from './types.ts';
 import { DEFAULT_CONFIG, DEFAULT_SITE_CONFIG } from './constants.ts';
 
 const SUPABASE_URL = 'https://mmwikcigbeesrmvoeswi.supabase.co';
@@ -19,6 +19,7 @@ interface StoreContextType extends AppState {
   isLoading: boolean;
   setCurrentUser: (user: User | null) => void;
   setTheme: (theme: ThemeMode) => void;
+  setBatchStatus: (status: Partial<BatchStatus>) => void;
   addUser: (username: string, role: UserRole, password?: string, approved?: boolean) => Promise<User>;
   toggleUserStatus: (id: string) => Promise<void>;
   updateUserRole: (id: string, role: UserRole) => Promise<void>;
@@ -45,6 +46,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const [cases, setCases] = useState<Case[]>([]);
   const [config, setConfig] = useState<ScoringConfig>(DEFAULT_CONFIG);
   const [siteConfig, setSiteConfig] = useState<SiteConfig>(DEFAULT_SITE_CONFIG);
+  const [batchStatus, setBatchStatusState] = useState<BatchStatus>({ isProcessing: false, current: 0, total: 0 });
 
   const fetchData = useCallback(async () => {
     try {
@@ -96,6 +98,10 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     localStorage.setItem('tb_theme', mode);
   };
 
+  const setBatchStatus = (status: Partial<BatchStatus>) => {
+    setBatchStatusState(prev => ({ ...prev, ...status }));
+  };
+
   const addUser = async (username: string, role: UserRole, password?: string, approved: boolean = false) => {
     const newUser: User = { id: Date.now().toString(), username, password: password || '123456', role, active: true, approved };
     await supabase.from('users').upsert(newUser, { onConflict: 'username' });
@@ -124,12 +130,11 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   };
 
   const addCase = async (newCase: Case) => {
-    setCases(prev => [newCase, ...prev]); // 立即本地更新
+    setCases(prev => [newCase, ...prev]); 
     await supabase.from('cases').insert({ id: newCase.id, data: newCase, creator_id: newCase.creatorId });
   };
 
   const updateCase = async (id: string, updatedCase: Case) => {
-    // 立即本地更新 UI
     setCases(prev => prev.map(c => c.id === id ? updatedCase : c));
     await supabase.from('cases').update({ data: updatedCase }).eq('id', id);
   };
@@ -171,9 +176,9 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
   return (
     <StoreContext.Provider value={{
-      currentUser, users, cases, config, siteConfig, theme, isLoading,
+      currentUser, users, cases, config, siteConfig, theme, isLoading, batchStatus,
       setCurrentUser, setTheme, addUser, toggleUserStatus, updateUserRole, updateUserPassword, approveUser, deleteUser, 
-      addCase, updateCase, deleteCases, mergeCases, updateGlobalConfig, updateConfig, updateSiteConfig, logout
+      addCase, updateCase, deleteCases, mergeCases, updateGlobalConfig, updateConfig, updateSiteConfig, logout, setBatchStatus
     }}>
       {children}
     </StoreContext.Provider>

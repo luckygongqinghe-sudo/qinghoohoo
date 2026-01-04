@@ -30,8 +30,8 @@ const LoginPage: React.FC = () => {
     if (currentUser) navigate('/dashboard/cases');
     
     const checkKeyStatus = async () => {
-      // 检查环境变量名是否匹配 GEMINI_API_KEY
-      const envKeyExists = !!process.env.GEMINI_API_KEY && process.env.GEMINI_API_KEY !== "";
+      // 核心修正：使用正确的环境变量名 API_KEY，这是由系统自动注入的
+      const envKeyExists = !!process.env.API_KEY && process.env.API_KEY !== "";
       if (envKeyExists) {
         setHasKey(true);
       } else if (window.aistudio) {
@@ -46,8 +46,9 @@ const LoginPage: React.FC = () => {
     if (window.aistudio) {
       try {
         await window.aistudio.openSelectKey();
+        // 标记为已激活，后续调用 GoogleGenAI 时将自动读取 process.env.API_KEY
         setHasKey(true);
-        setStatus({ type: 'info', msg: 'AI 密钥已手动激活，系统功能已完整解锁。' });
+        setStatus({ type: 'info', msg: 'AI 密钥已激活，系统功能已完整解锁。' });
       } catch (err) {
         setStatus({ type: 'error', msg: '密钥激活失败。' });
       }
@@ -102,7 +103,7 @@ const LoginPage: React.FC = () => {
             <div className="bg-emerald-600 w-12 h-12 rounded-2xl flex items-center justify-center mb-8 shadow-lg shadow-emerald-500/20">
               <Activity size={24}/>
             </div>
-            <h2 className="text-4xl font-black leading-tight tracking-tighter">TB-Scan<br/>数字化筛查</h2>
+            <h2 className="text-4xl font-black leading-tight tracking-tighter text-white">TB-Scan<br/>数字化筛查</h2>
             <p className="text-slate-400 text-sm mt-6 font-medium">临床决策辅助与病例追踪平台</p>
           </div>
 
@@ -112,7 +113,7 @@ const LoginPage: React.FC = () => {
               <span className="text-[10px] font-black uppercase tracking-widest text-slate-400">AI 服务状态</span>
             </div>
             <p className="text-[11px] text-slate-500 font-bold leading-relaxed">
-              {hasKey ? '全维度模型已对齐。' : '密钥未配置。请在右侧点击“激活 AI 服务”按钮进行配置。'}
+              {hasKey ? '全维度模型已对齐。系统将使用自动注入的 API Key。' : '密钥未配置。请点击右侧“激活 AI 服务”进行配置。'}
             </p>
           </div>
           
@@ -127,7 +128,7 @@ const LoginPage: React.FC = () => {
               <p className="text-slate-500 text-[10px] font-black uppercase tracking-widest mt-1">Authorized Access Only</p>
             </div>
             {!hasKey && (
-              <button onClick={handleLinkKey} className="flex items-center gap-2 px-4 py-2 bg-amber-50 border border-amber-200 rounded-xl text-amber-700 text-[10px] font-black shadow-sm hover:bg-amber-100">
+              <button onClick={handleLinkKey} className="flex items-center gap-2 px-4 py-2 bg-amber-50 border border-amber-200 rounded-xl text-amber-700 text-[10px] font-black shadow-sm hover:bg-amber-100 transition-colors">
                 <Key size={14}/> 激活 AI 服务
               </button>
             )}
@@ -136,11 +137,11 @@ const LoginPage: React.FC = () => {
           <form onSubmit={handleSubmit} className="space-y-6">
             <div className="space-y-2">
               <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">用户名</label>
-              <input type="text" value={username} onChange={e => setUsername(e.target.value)} required className="w-full px-6 py-4 rounded-2xl bg-slate-50 dark:bg-slate-800 border-none font-bold text-slate-900 dark:text-white outline-none focus:ring-2 focus:ring-emerald-500/20" />
+              <input type="text" value={username} onChange={e => setUsername(e.target.value)} required className="w-full px-6 py-4 rounded-2xl bg-slate-50 dark:bg-slate-800 border-none font-bold text-slate-900 dark:text-white outline-none focus:ring-2 focus:ring-emerald-500/20 shadow-inner" />
             </div>
             <div className="space-y-2">
               <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">密码</label>
-              <input type="password" value={password} onChange={e => setPassword(e.target.value)} required className="w-full px-6 py-4 rounded-2xl bg-slate-50 dark:bg-slate-800 border-none font-bold text-slate-900 dark:text-white outline-none focus:ring-2 focus:ring-emerald-500/20" />
+              <input type="password" value={password} onChange={e => setPassword(e.target.value)} required className="w-full px-6 py-4 rounded-2xl bg-slate-50 dark:bg-slate-800 border-none font-bold text-slate-900 dark:text-white outline-none focus:ring-2 focus:ring-emerald-500/20 shadow-inner" />
             </div>
 
             {status && (
@@ -154,8 +155,8 @@ const LoginPage: React.FC = () => {
               <button type="submit" disabled={isProcessing} className="w-full py-5 rounded-2xl bg-slate-950 dark:bg-emerald-600 text-white font-black text-sm shadow-xl flex items-center justify-center gap-2 hover:scale-[1.02] active:scale-95 transition-all">
                 {isProcessing ? '处理中...' : <>{isLogin ? '登录工作台' : '提交注册申请'} <ChevronRight size={16}/></>}
               </button>
-              <button type="button" onClick={() => { setIsLogin(!isLogin); setStatus(null); }} className="w-full py-2 text-[10px] font-black text-slate-400 uppercase tracking-widest hover:text-slate-600">
-                {isLogin ? '没有账号？申请加入' : '已有账号？返回登录'}
+              <button type="button" onClick={() => { setIsLogin(!isLogin); setStatus(null); }} className="w-full py-2 text-[12px] font-black text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 transition-colors uppercase tracking-widest">
+                {isLogin ? '没有账号？申请加入' : '已有账号？立即登录'}
               </button>
             </div>
           </form>

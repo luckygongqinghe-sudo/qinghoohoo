@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
 import { useStore } from '../store.tsx';
-import { UserRole, ScoringConfig, SiteConfig, RiskThreshold, LandingFeature, AboutItem } from '../types.ts';
+import { UserRole, ScoringConfig, SiteConfig, RiskThreshold, FewShotExample } from '../types.ts';
 import { 
   Users, 
   Trash2, 
@@ -16,8 +16,11 @@ import {
   Layout,
   Trash,
   Globe,
-  FileText,
-  Palette
+  Palette,
+  BrainCircuit,
+  MessageSquareQuote,
+  ShieldCheck,
+  UserCircle
 } from 'lucide-react';
 
 const Label: React.FC<{ children: React.ReactNode }> = ({ children }) => (
@@ -31,12 +34,13 @@ const AdminSettingsPage: React.FC = () => {
     approveUser,
     deleteUser,
     toggleUserStatus,
+    updateUserRole,
     config, 
     siteConfig, 
     updateGlobalConfig 
   } = useStore();
   
-  const [activeTab, setActiveTab] = useState<'team' | 'scoring' | 'thresholds' | 'cms'>('scoring');
+  const [activeTab, setActiveTab] = useState<'team' | 'scoring' | 'thresholds' | 'cms' | 'ai'>('team');
   
   const [localConfig, setLocalConfig] = useState<ScoringConfig>(() => JSON.parse(JSON.stringify(config)));
   const [localSiteConfig, setLocalSiteConfig] = useState<SiteConfig>(() => JSON.parse(JSON.stringify(siteConfig)));
@@ -62,7 +66,7 @@ const AdminSettingsPage: React.FC = () => {
   const activeUsers = useMemo(() => users.filter(u => u.approved), [users]);
 
   const handleUpdateScore = (cat: keyof ScoringConfig, key: string, val: number) => {
-    if (cat === 'thresholds') return;
+    if (cat === 'thresholds' || cat === 'fewShotExamples') return;
     setLocalConfig(prev => ({ 
       ...prev, 
       [cat]: { ...(prev[cat] as Record<string, number>), [key]: val } 
@@ -103,6 +107,22 @@ const AdminSettingsPage: React.FC = () => {
   const handleRemoveThreshold = (id: string) => {
     if (!window.confirm("确定删除此策略？")) return;
     setLocalConfig(prev => ({ ...prev, thresholds: prev.thresholds.filter(t => t.id !== id) }));
+  };
+
+  const handleAddFewShot = () => {
+    const newEx: FewShotExample = { id: `ex-${Date.now()}`, scenario: '录入矛盾场景...', reasoning: '录入推导逻辑...', fusionScore: 0 };
+    setLocalConfig(prev => ({ ...prev, fewShotExamples: [...(prev.fewShotExamples || []), newEx] }));
+  };
+
+  const handleUpdateFewShot = (id: string, updates: Partial<FewShotExample>) => {
+    setLocalConfig(prev => ({
+      ...prev,
+      fewShotExamples: prev.fewShotExamples?.map(ex => ex.id === id ? { ...ex, ...updates } : ex)
+    }));
+  };
+
+  const handleRemoveFewShot = (id: string) => {
+    setLocalConfig(prev => ({ ...prev, fewShotExamples: prev.fewShotExamples?.filter(ex => ex.id !== id) }));
   };
 
   const handleSaveAll = async () => {
@@ -146,6 +166,7 @@ const AdminSettingsPage: React.FC = () => {
             { id: 'team', label: '团队审核', icon: Users },
             { id: 'scoring', label: '权重配置', icon: Settings2 },
             { id: 'thresholds', label: '风险逻辑', icon: Sliders },
+            { id: 'ai', label: 'AI微调', icon: BrainCircuit },
             { id: 'cms', label: '内容管理', icon: Layout },
           ].map(tab => (
             <button key={tab.id} onClick={() => setActiveTab(tab.id as any)} 
@@ -173,21 +194,60 @@ const AdminSettingsPage: React.FC = () => {
               {pendingUsers.length === 0 && <div className="col-span-2 text-center py-10 text-slate-400 font-bold uppercase tracking-widest text-xs">当前无待处理医师申请</div>}
             </div>
           </div>
+          
           <div className="bg-white rounded-[3rem] p-10 border border-slate-100 shadow-xl">
-            <h3 className="text-xl font-black mb-8 text-slate-950 uppercase tracking-tighter">活跃医师团队</h3>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <h3 className="text-xl font-black mb-8 text-slate-950 uppercase tracking-tighter">活跃医师团队与账号权限</h3>
+            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
               {activeUsers.map(u => (
-                <div key={u.id} className="p-6 bg-slate-50 rounded-3xl border border-slate-100 flex flex-col justify-between group">
-                   <div className="flex justify-between items-start mb-4">
-                      <div>
-                        <div className="font-black text-slate-950">{u.username}</div>
-                        <div className="text-[9px] font-black text-slate-500 mt-0.5 uppercase tracking-widest">{u.role}</div>
+                <div key={u.id} className="p-8 bg-slate-50 rounded-[2.5rem] border border-slate-100 flex flex-col justify-between group transition-all hover:border-slate-950/10 hover:shadow-lg">
+                   <div className="flex justify-between items-start mb-6">
+                      <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 rounded-2xl bg-white shadow-sm flex items-center justify-center font-black text-slate-900 border border-slate-100 uppercase">
+                          {u.username.charAt(0)}
+                        </div>
+                        <div>
+                          <div className="font-black text-slate-950 text-lg">{u.username}</div>
+                          <div className="text-[10px] font-black text-slate-400 mt-0.5 uppercase tracking-widest flex items-center gap-1">
+                            {u.role === UserRole.ADMIN ? <ShieldCheck size={10} className="text-emerald-600"/> : <UserCircle size={10}/>}
+                            {u.role === UserRole.ADMIN ? 'Administrator' : 'General Practitioner'}
+                          </div>
+                        </div>
                       </div>
-                      <div className={`w-2 h-2 rounded-full ${u.active ? 'bg-emerald-500 shadow-lg' : 'bg-slate-300'}`}></div>
+                      <div className={`w-2 h-2 rounded-full ${u.active ? 'bg-emerald-500 shadow-[0_0_10px_rgba(16,185,129,0.5)]' : 'bg-slate-300'}`}></div>
                    </div>
-                   <div className="flex justify-end gap-2 border-t border-slate-100 pt-4">
-                      <button onClick={() => toggleUserStatus(u.id)} className={`px-4 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest ${u.active ? 'bg-slate-100 text-slate-950 border border-slate-200' : 'bg-slate-950 text-white shadow-sm'}`}>{u.active ? '冻结' : '激活'}</button>
-                      <button onClick={() => deleteUser(u.id)} className="p-1.5 text-rose-500 hover:text-rose-600 transition-colors"><Trash2 size={16}/></button>
+
+                   <div className="space-y-4">
+                      <div className="bg-white p-2 rounded-2xl border border-slate-100 flex items-center gap-1 shadow-inner">
+                        <button 
+                          onClick={() => updateUserRole(u.id, UserRole.USER)}
+                          className={`flex-1 py-2 rounded-xl text-[9px] font-black uppercase tracking-widest transition-all ${u.role === UserRole.USER ? 'bg-slate-950 text-white shadow-md' : 'text-slate-400 hover:text-slate-600'}`}
+                        >
+                          普通医师
+                        </button>
+                        <button 
+                          onClick={() => u.username !== 'qinghoohoo' && updateUserRole(u.id, UserRole.ADMIN)}
+                          className={`flex-1 py-2 rounded-xl text-[9px] font-black uppercase tracking-widest transition-all ${u.role === UserRole.ADMIN ? 'bg-emerald-600 text-white shadow-md' : 'text-slate-400 hover:text-slate-600'} ${u.username === 'qinghoohoo' ? 'opacity-50 cursor-not-allowed' : ''}`}
+                        >
+                          管理员
+                        </button>
+                      </div>
+
+                      <div className="flex justify-end gap-3 border-t border-slate-100 pt-5">
+                          <button 
+                            onClick={() => toggleUserStatus(u.id)} 
+                            className={`px-5 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${u.active ? 'bg-slate-100 text-slate-900 hover:bg-slate-200' : 'bg-slate-950 text-white'}`}
+                          >
+                            {u.active ? '账户冻结' : '恢复激活'}
+                          </button>
+                          {u.username !== 'qinghoohoo' && (
+                            <button 
+                              onClick={() => deleteUser(u.id)} 
+                              className="p-2.5 text-rose-500 hover:bg-rose-50 rounded-xl transition-all"
+                            >
+                              <Trash2 size={18}/>
+                            </button>
+                          )}
+                      </div>
                    </div>
                 </div>
               ))}
@@ -255,6 +315,46 @@ const AdminSettingsPage: React.FC = () => {
         </div>
       )}
 
+      {activeTab === 'ai' && (
+        <div className="bg-white rounded-[3rem] p-10 border border-slate-100 shadow-xl space-y-10 text-slate-950">
+           <div className="flex items-center justify-between">
+             <div className="flex items-center gap-3">
+               <BrainCircuit size={28} className="text-indigo-600" />
+               <h3 className="text-xl font-black text-slate-950 uppercase tracking-tighter">AI 临床推导微调 (Few-Shot Prompting)</h3>
+             </div>
+             <button onClick={handleAddFewShot} className="flex items-center gap-2 px-8 py-3 bg-indigo-600 text-white rounded-full text-[10px] font-black uppercase tracking-widest hover:scale-105 transition-all shadow-xl"><Plus size={14} className="text-white"/> 录入标杆范例</button>
+           </div>
+           <p className="text-[11px] text-slate-500 font-bold max-w-2xl leading-relaxed">此处定义的标杆范例将作为 AI 审计的“参考逻辑”，确保模型在处理复杂的临床矛盾（如：病原学阴性但影像学高度可疑）时具备高度的一致性与专业性。</p>
+           
+           <div className="space-y-6">
+              {localConfig.fewShotExamples?.map((ex) => (
+                <div key={ex.id} className="grid grid-cols-1 lg:grid-cols-12 gap-6 p-8 bg-slate-50 border border-slate-100 rounded-[2rem] relative group hover:border-indigo-600/20 transition-all">
+                   <div className="lg:col-span-4">
+                      <Label><MessageSquareQuote size={12} className="inline mr-1" /> 典型矛盾场景</Label>
+                      <textarea value={ex.scenario} onChange={e => handleUpdateFewShot(ex.id, { scenario: e.target.value })} className="w-full bg-white border border-slate-100 rounded-xl px-4 py-3 text-[11px] font-bold h-24 resize-none text-slate-950" placeholder="例如：痰检持续阴性但CT显示典型干酪样坏死..." />
+                   </div>
+                   <div className="lg:col-span-5">
+                      <Label><BrainCircuit size={12} className="inline mr-1" /> 专家推导范式</Label>
+                      <textarea value={ex.reasoning} onChange={e => handleUpdateFewShot(ex.id, { reasoning: e.target.value })} className="w-full bg-white border border-slate-100 rounded-xl px-4 py-3 text-[11px] font-bold h-24 resize-none text-slate-950" placeholder="详细说明专家如何在此场景下进行逻辑调优..." />
+                   </div>
+                   <div className="lg:col-span-2">
+                      <Label>建议修正分</Label>
+                      <input type="number" value={ex.fusionScore} onChange={e => handleUpdateFewShot(ex.id, { fusionScore: parseInt(e.target.value) || 0 })} className="w-full bg-white border border-slate-100 rounded-xl px-4 py-2.5 text-sm font-black text-slate-950" />
+                   </div>
+                   <div className="lg:col-span-1 flex items-end justify-center">
+                      <button onClick={() => handleRemoveFewShot(ex.id)} className="p-3 text-rose-500 hover:bg-rose-50 rounded-xl transition-all"><Trash size={18}/></button>
+                   </div>
+                </div>
+              ))}
+              {(!localConfig.fewShotExamples || localConfig.fewShotExamples.length === 0) && (
+                <div className="text-center py-20 border-2 border-dashed border-slate-100 rounded-[3rem]">
+                  <p className="text-[11px] font-black text-slate-400 uppercase tracking-widest">当前未定义任何 AI 参考范式，模型将使用默认逻辑</p>
+                </div>
+              )}
+           </div>
+        </div>
+      )}
+
       {activeTab === 'cms' && (
         <div className="space-y-10 text-slate-950">
           <div className="bg-white rounded-[3rem] p-10 border border-slate-100 shadow-xl space-y-10">
@@ -274,7 +374,7 @@ const AdminSettingsPage: React.FC = () => {
                </div>
                <div className="space-y-3">
                  <Label>CTA 引导文案</Label>
-                 <input value={localSiteConfig.ctaText} onChange={e => setLocalSiteConfig({...localSiteConfig, ctaText: e.target.value})} className="w-full bg-slate-50 border border-slate-100 px-6 py-4 rounded-2xl font-bold text-slate-950 text-sm outline-none" />
+                 <input value={localSiteConfig.ctaText} onChange={e => setLocalSiteConfig({...localSiteConfig, heroDescription: e.target.value})} className="w-full bg-slate-50 border border-slate-100 px-6 py-4 rounded-2xl font-bold text-slate-950 text-sm outline-none" />
                </div>
                <div className="space-y-3">
                  <Label>Hero 视觉 URL</Label>
@@ -355,7 +455,7 @@ const AdminSettingsPage: React.FC = () => {
                  <input value={localSiteConfig.footerIcp} onChange={e => setLocalSiteConfig({...localSiteConfig, footerIcp: e.target.value})} className="w-full bg-white border border-slate-200 px-6 py-4 rounded-2xl font-bold text-slate-950 text-sm outline-none" />
                </div>
                <div className="space-y-3">
-                 <Label>全站品牌名称</Label>
+                 <Label>全站 brand 品牌名称</Label>
                  <input value={localSiteConfig.footerBrandName} onChange={e => setLocalSiteConfig({...localSiteConfig, footerBrandName: e.target.value})} className="w-full bg-white border border-slate-200 px-4 py-3 rounded-xl font-bold text-slate-950 text-xs outline-none" />
                </div>
             </div>

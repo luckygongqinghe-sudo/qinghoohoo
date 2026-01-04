@@ -1,7 +1,8 @@
+
 import React, { useState, useEffect, useRef } from 'react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
 import { useStore } from '../store.tsx';
-import { Case, AiInference } from '../types.ts';
+import { Case, AiInference, ImpactFactor } from '../types.ts';
 import { GoogleGenAI, Type } from "@google/genai";
 import { 
   Calculator, 
@@ -21,7 +22,9 @@ import {
   Users,
   CheckCircle2,
   Eye,
-  History
+  History,
+  ShieldCheck,
+  Zap
 } from 'lucide-react';
 
 const CaseInputPage: React.FC = () => {
@@ -137,26 +140,38 @@ const CaseInputPage: React.FC = () => {
     setIsAiProcessing(true);
     try {
       const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-      const prompt = `你是一位结核病防治专家。请基于以下病例数据进行深度协同分析，并【重点识别】临床指征与检测结果之间的非典型或矛盾点（例如：病原学阴性但临床症状极重且BMI暴跌；或强暴露史且CT典型但痰检阴性）。
       
-      【基本信息】：姓名 ${formData.name}, 性别 ${formData.gender}, 年龄 ${formData.age}
-      【指征】：BMI ${bmi}, 暴露史 ${formData.exposure}, 既往史 ${formData.history.join(',')}, 症状 ${formData.symptoms.join(',')}
-      【检查】：CT特征 ${formData.ctFeature}, QFT ${formData.qft}, 涂片 ${formData.smear}, 培养 ${formData.culture}, 分子检测 ${formData.molecular}
-      【临床笔记】：${rawNotes || '无'}
+      const examplesPrompt = config.fewShotExamples?.map(ex => `
+        【参考案例场景】：${ex.scenario}
+        【专家逻辑】：${ex.reasoning}
+        【修正得分】：${ex.fusionScore}
+      `).join('\n') || '';
+
+      const prompt = `你是一位结核病防治专家。请基于以下病例数据进行深度协同分析。
       
-      【任务】：
-      1. anomalies: 必须是一个数组，列举你识别到的所有“非典型/矛盾风险点”。
+      ${examplesPrompt ? '请参考以下专家级推导范式：' + examplesPrompt : ''}
+
+      【当前受检者数据】：
+      姓名 ${formData.name}, 性别 ${formData.gender}, 年龄 ${formData.age}
+      指征：BMI ${bmi}, 暴露史 ${formData.exposure}, 既往史 ${formData.history.join(',')}, 症状 ${formData.symptoms.join(',')}
+      检查：CT特征 ${formData.ctFeature}, QFT ${formData.qft}, 涂片 ${formData.smear}, 培养 ${formData.culture}, 分子检测 ${formData.molecular}
+      临床笔记：${rawNotes || '无'}
+      
+      【核心任务】：
+      1. anomalies: 数组。识别临床指征与检测结果之间的非典型或矛盾点。
       2. reasoning: 详细的推导逻辑链。
-      3. fusionScore: 综合上述矛盾点后给出的修正评分（应在 ${totalScore} 的基础上调整）。
-      4. suggestedAction: 下一步干预建议。
-      回复必须是全中文 JSON 格式。`;
+      3. fusionScore: 综合分（指南原始分 ${totalScore}）。
+      4. impactFactors: 数组。列出对修正得分影响最大的3-5个因素，包含 feature(名称), impact(权重数值如+15或-10), reason(原因简述)。
+      5. confidence: 0.0-1.0 置信度。
+      
+      必须返回标准 JSON。`;
       
       const res = await ai.models.generateContent({
-        model: 'gemini-3-flash-preview',
+        model: 'gemini-3-pro-preview',
         contents: [{ parts: [{ text: prompt }] }],
         config: {
           responseMimeType: "application/json",
-          thinkingConfig: { thinkingBudget: 15000 },
+          thinkingConfig: { thinkingBudget: 24576 },
           responseSchema: {
             type: Type.OBJECT,
             properties: {
@@ -164,9 +179,21 @@ const CaseInputPage: React.FC = () => {
               fusionScore: { type: Type.NUMBER },
               anomalies: { type: Type.ARRAY, items: { type: Type.STRING } },
               suggestedAction: { type: Type.STRING },
-              confidence: { type: Type.NUMBER }
+              confidence: { type: Type.NUMBER },
+              impactFactors: {
+                type: Type.ARRAY,
+                items: {
+                  type: Type.OBJECT,
+                  properties: {
+                    feature: { type: Type.STRING },
+                    impact: { type: Type.NUMBER },
+                    reason: { type: Type.STRING }
+                  },
+                  required: ["feature", "impact", "reason"]
+                }
+              }
             },
-            required: ["reasoning", "fusionScore", "anomalies", "suggestedAction", "confidence"]
+            required: ["reasoning", "fusionScore", "anomalies", "suggestedAction", "confidence", "impactFactors"]
           }
         }
       });
@@ -217,13 +244,12 @@ const CaseInputPage: React.FC = () => {
         </div>
         <div>
           <h1 className="text-3xl font-black text-slate-900 dark:text-white tracking-tighter uppercase">临床评估录入</h1>
-          <p className="text-[10px] text-slate-400 font-black tracking-widest uppercase mt-1">Multi-Dimensional Diagnostic System</p>
+          <p className="text-[10px] text-slate-400 font-black tracking-widest uppercase mt-1">Industrial-Grade Clinical Decision Logic</p>
         </div>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-10">
         <form onSubmit={handleSubmit} className="lg:col-span-2 space-y-10">
-          
           <section className="bg-white dark:bg-slate-900 p-10 rounded-[48px] shadow-xl border border-slate-50 dark:border-slate-800 space-y-10">
             <h3 className="text-sm font-black text-slate-900 dark:text-white flex items-center gap-3 border-b border-slate-50 dark:border-slate-800 pb-6">
               <User size={20} className="text-emerald-500" /> 01. 受检者概况
@@ -369,19 +395,45 @@ const CaseInputPage: React.FC = () => {
             </div>
           </div>
 
-          <div className="bg-slate-950 p-12 rounded-[48px] shadow-2xl text-white">
-            <div className="flex items-center justify-between mb-10">
+          <div className="bg-slate-950 p-12 rounded-[48px] shadow-2xl text-white overflow-hidden relative">
+            <div className="absolute top-0 right-0 p-4 opacity-10">
+              <Zap size={100} />
+            </div>
+            
+            <div className="flex items-center justify-between mb-10 relative z-10">
               <h3 className="text-[10px] font-black text-indigo-400 uppercase tracking-[0.2em] flex items-center gap-3"><BrainCircuit size={20} /> Synergy 专家协同推理</h3>
               <Sparkles size={20} className="text-indigo-400 animate-pulse" />
             </div>
+            
             <textarea value={rawNotes} onChange={e => setRawNotes(e.target.value)} placeholder="记录病例特殊细节，AI 将深度挖掘指征与检测结果间的矛盾逻辑..." className="w-full h-32 bg-white/5 border border-white/10 rounded-[32px] p-7 text-xs font-bold text-white outline-none mb-6 focus:border-indigo-400" />
+            
             <button type="button" onClick={runAiSynergy} disabled={isAiProcessing} className="w-full py-6 rounded-2xl bg-indigo-600 text-white font-black text-xs uppercase tracking-widest flex items-center justify-center gap-4 hover:scale-[1.02] transition-all shadow-xl shadow-indigo-500/20">
               {isAiProcessing ? <Loader2 className="animate-spin" size={20}/> : <BrainCircuit size={20}/>}
               启动 AI 协同分析
             </button>
             
             {aiResult && (
-              <div className="mt-10 pt-10 border-t border-white/10 space-y-8 animate-in fade-in">
+              <div className="mt-10 pt-10 border-t border-white/10 space-y-8 animate-in fade-in relative z-10">
+                <div className="flex items-center justify-between mb-2">
+                  <div className="flex items-center gap-2">
+                    <ShieldCheck size={14} className="text-emerald-400" />
+                    <span className="text-[10px] font-black uppercase text-slate-400">逻辑审计置信度</span>
+                  </div>
+                  <span className={`text-[10px] font-black ${aiResult.confidence < 0.7 ? 'text-rose-400' : 'text-emerald-400'}`}>
+                    {(aiResult.confidence * 100).toFixed(0)}%
+                  </span>
+                </div>
+                <div className="w-full bg-white/5 h-1.5 rounded-full overflow-hidden mb-8">
+                  <div className={`h-full transition-all duration-1000 ${aiResult.confidence < 0.7 ? 'bg-rose-500' : 'bg-emerald-500'}`} style={{ width: `${aiResult.confidence * 100}%` }}></div>
+                </div>
+
+                {aiResult.confidence < 0.7 && (
+                  <div className="bg-rose-600/10 border border-rose-500/20 p-5 rounded-2xl flex items-center gap-4 animate-pulse">
+                    <AlertTriangle size={20} className="text-rose-500 shrink-0" />
+                    <p className="text-[10px] font-black text-rose-200 uppercase tracking-widest leading-relaxed">AI 置信度不足，本建议必须经由两名以上临床专家复核</p>
+                  </div>
+                )}
+
                 <div className="grid grid-cols-2 gap-4">
                    <div className="bg-white/5 p-4 rounded-2xl border border-white/5">
                       <p className="text-[8px] font-black text-white/40 uppercase flex items-center gap-1"><FileText size={10} /> Guideline Score</p>
@@ -393,12 +445,29 @@ const CaseInputPage: React.FC = () => {
                    </div>
                 </div>
 
+                {/* 影响因子可视化 */}
+                <div className="space-y-4">
+                  <span className="text-[9px] font-black text-slate-400 uppercase block tracking-widest mb-2">AI 调分影响因子 (Impact)</span>
+                  <div className="space-y-3">
+                    {aiResult.impactFactors?.map((f, i) => (
+                      <div key={i} className="bg-white/5 p-4 rounded-2xl border border-white/5 flex flex-col gap-2">
+                        <div className="flex justify-between items-center">
+                          <span className="text-[11px] font-black text-slate-200">{f.feature}</span>
+                          <span className={`text-[10px] font-black px-2 py-0.5 rounded-full ${f.impact >= 0 ? 'bg-rose-500/20 text-rose-400' : 'bg-emerald-500/20 text-emerald-400'}`}>
+                            {f.impact >= 0 ? `+${f.impact}` : f.impact}
+                          </span>
+                        </div>
+                        <p className="text-[10px] text-slate-500 italic leading-snug">{f.reason}</p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
                 <div className="space-y-6">
-                  {/* 识别到的非典型/矛盾风险点 */}
                   {aiResult.anomalies && aiResult.anomalies.length > 0 && (
                     <div className="bg-rose-500/10 p-6 rounded-3xl border border-rose-500/20">
                       <span className="text-[9px] font-black text-rose-400 uppercase block mb-3 flex items-center gap-2">
-                        <AlertTriangle size={14} /> 识别到的非典型/矛盾风险点
+                        <AlertTriangle size={14} /> 逻辑矛盾分析
                       </span>
                       <ul className="space-y-2">
                         {aiResult.anomalies.map((a, i) => (
@@ -412,7 +481,7 @@ const CaseInputPage: React.FC = () => {
                   )}
 
                   <div className="bg-white/5 p-6 rounded-3xl border border-white/5">
-                    <span className="text-[9px] font-black text-indigo-400 uppercase block mb-2">专家推导链分析</span>
+                    <span className="text-[9px] font-black text-indigo-400 uppercase block mb-2">思维链逻辑推导</span>
                     <p className="text-[11px] text-slate-200 leading-relaxed font-medium">“{aiResult.reasoning}”</p>
                   </div>
                   

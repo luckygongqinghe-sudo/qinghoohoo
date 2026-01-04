@@ -48,6 +48,13 @@ export interface RiskThreshold {
   suggestion: string;
 }
 
+export interface FewShotExample {
+  id: string;
+  scenario: string;
+  reasoning: string;
+  fusionScore: number;
+}
+
 export interface SiteConfig {
   heroBadge: string;
   heroTitle: string;
@@ -94,6 +101,13 @@ export interface ScoringConfig {
   molecular: Record<string, number>; 
   symptoms: Record<string, number>;
   thresholds: RiskThreshold[];
+  fewShotExamples?: FewShotExample[]; // AI微调模块
+}
+
+export interface ImpactFactor {
+  feature: string;
+  impact: number; // 影响百分比或数值分
+  reason: string;
 }
 
 export interface AiInference {
@@ -102,6 +116,7 @@ export interface AiInference {
   anomalies: string[];
   suggestedAction: string;
   confidence: number;
+  impactFactors?: ImpactFactor[]; // 影响因子可视化
 }
 
 export interface Case {
@@ -131,6 +146,12 @@ export interface Case {
   aiInference?: AiInference;
 }
 
+export interface BatchStatus {
+  isProcessing: boolean;
+  current: number;
+  total: number;
+}
+
 export interface AppState {
   currentUser: User | null;
   users: User[];
@@ -138,4 +159,5 @@ export interface AppState {
   config: ScoringConfig;
   siteConfig: SiteConfig;
   theme: ThemeMode;
+  batchStatus: BatchStatus;
 }
