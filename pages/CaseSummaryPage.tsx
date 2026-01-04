@@ -189,23 +189,31 @@ const CaseSummaryPage: React.FC = () => {
   };
 
   const runBatchInference = async () => {
-    console.log("Starting batch inference check...");
-    if (batchStatus.isProcessing) {
-      console.log("Already processing, skipping.");
-      return;
-    }
+    if (batchStatus.isProcessing) return;
     
     // 逻辑：如果勾选了则只处理勾选的，没勾选则处理当前视图中所有的
-    let targetsToProcess = selectedIds.length > 0 
+    let baseTargets = selectedIds.length > 0 
       ? cases.filter(c => selectedIds.includes(c.id))
       : filteredCases;
 
+    // 关键修正：过滤掉已经存在 AI 推理结果的病例，避免重复工作
+    const targetsToProcess = baseTargets.filter(c => !c.aiInference);
+
     if (targetsToProcess.length === 0) {
-      alert('无可供分析的病例记录。请确保当前列表有内容或已勾选目标。');
+      if (baseTargets.length > 0) {
+        alert('当前视图中的所有病例均已完成 AI 协同审计，无需重复执行。');
+      } else {
+        alert('无可供分析的病例记录。请确保当前列表有内容或已勾选目标。');
+      }
       return;
     }
 
-    if (!confirm(`准备对 ${targetsToProcess.length} 个病例启动专家级协同推理？分析将在后台执行，可继续其他操作。`)) return;
+    const skippedCount = baseTargets.length - targetsToProcess.length;
+    const msg = skippedCount > 0 
+      ? `准备启动专家级协同推理。将分析 ${targetsToProcess.length} 个新病例（已自动跳过 ${skippedCount} 个已审计档案）。是否继续？`
+      : `准备对 ${targetsToProcess.length} 个病例启动专家级协同推理？分析将在后台执行，可继续其他操作。`;
+
+    if (!confirm(msg)) return;
 
     // 预检 Key
     if (window.aistudio && !process.env.API_KEY) {
@@ -215,14 +223,12 @@ const CaseSummaryPage: React.FC = () => {
       }
     }
 
-    console.log(`Proceeding with batch processing of ${targetsToProcess.length} cases.`);
     setBatchStatus({ isProcessing: true, current: 0, total: targetsToProcess.length });
 
     // 异步循环执行
     (async () => {
       try {
         for (let i = 0; i < targetsToProcess.length; i++) {
-          console.log(`Processing item ${i + 1}/${targetsToProcess.length}: ${targetsToProcess[i].id}`);
           await performInference(targetsToProcess[i]);
           setBatchStatus({ current: i + 1 });
           
@@ -232,7 +238,6 @@ const CaseSummaryPage: React.FC = () => {
       } catch (batchErr) {
         console.error("Batch loop error:", batchErr);
       } finally {
-        console.log("Batch processing completed.");
         setBatchStatus({ isProcessing: false, current: 0, total: 0 });
         setSelectedIds([]);
       }
@@ -336,7 +341,7 @@ const CaseSummaryPage: React.FC = () => {
               ) : (
                 <>
                   <BrainCircuit size={16} className="text-indigo-400" />
-                  批量协同推理 {selectedIds.length > 0 ? `(${selectedIds.length})` : '(全量视图)'}
+                  批量协同推理 (仅未完成项)
                 </>
               )}
             </button>
