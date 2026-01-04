@@ -137,7 +137,7 @@ const CaseInputPage: React.FC = () => {
     setAiError(null);
     setIsAiProcessing(true);
     try {
-      // 核心改动：通过 Vercel Rewrites 代理 API 请求，解决国内访问限制
+      // 深度优化：使用本地部署的 Edge Proxy 绕过 FQ 限制并解决跨域
       const ai = new GoogleGenAI({ 
         apiKey: process.env.API_KEY,
         baseUrl: `${window.location.origin}/api/proxy`
@@ -145,7 +145,7 @@ const CaseInputPage: React.FC = () => {
       
       const prompt = `你是一位结核病防治专家。请基于以下病例数据进行深度协同分析，并【重点识别】临床指征与检测结果之间的非典型或矛盾点（例如：病原学阴性但临床症状极重且BMI暴跌；或强暴露史且CT典型但痰检阴性）。
       
-      【基本信息】：姓名 ${formData.name}, 性别 ${formData.gender}, 年龄 ${formData.age}
+      【基本信息】：姓名 ${formData.name}, 性别 ${formData.gender}, Age ${formData.age}
       【指征】：BMI ${bmi}, 暴露史 ${formData.exposure}, 既往史 ${formData.history.join(',')}, 症状 ${formData.symptoms.join(',')}
       【检查】：CT特征 ${formData.ctFeature}, QFT ${formData.qft}, 涂片 ${formData.smear}, 培养 ${formData.culture}, 分子检测 ${formData.molecular}
       【临床笔记】：${rawNotes || '无'}
@@ -178,8 +178,8 @@ const CaseInputPage: React.FC = () => {
       });
       setAiResult(JSON.parse(res.text || '{}'));
     } catch (e: any) {
-      setAiError("AI 协同引擎连接异常，请确保 API 密钥正确或稍后再试。");
-      console.error("AI Proxy Error:", e);
+      setAiError("AI 协同引擎服务目前无法从本地直接建立安全连接。请确保已在 Vercel 后端部署代理服务，或检查 API 密钥。");
+      console.error("AI Client Error:", e);
     } finally { setIsAiProcessing(false); }
   };
 
