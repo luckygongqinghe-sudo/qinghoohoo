@@ -1,9 +1,0 @@
-
-{
-  "rewrites": [
-    {
-      "source": "/api/proxy/:path*",
-      "destination": "https://generativelanguage.googleapis.com/:path*"
-    }
-  ]
-}

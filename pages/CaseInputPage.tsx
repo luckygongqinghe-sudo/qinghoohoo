@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useRef } from 'react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
 import { useStore } from '../store.tsx';
@@ -137,12 +136,7 @@ const CaseInputPage: React.FC = () => {
     setAiError(null);
     setIsAiProcessing(true);
     try {
-      // 核心代理配置：将 baseUrl 指向本地重写路径
-      const ai = new GoogleGenAI({ 
-        apiKey: process.env.API_KEY,
-        baseUrl: `${window.location.origin}/api/proxy`
-      });
-
+      const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
       const prompt = `你是一位结核病防治专家。请基于以下病例数据进行深度协同分析，并【重点识别】临床指征与检测结果之间的非典型或矛盾点（例如：病原学阴性但临床症状极重且BMI暴跌；或强暴露史且CT典型但痰检阴性）。
       
       【基本信息】：姓名 ${formData.name}, 性别 ${formData.gender}, 年龄 ${formData.age}
@@ -178,8 +172,7 @@ const CaseInputPage: React.FC = () => {
       });
       setAiResult(JSON.parse(res.text || '{}'));
     } catch (e: any) {
-      console.error("AI Proxy Error:", e);
-      setAiError("AI 协同引擎连接失败。请确保 Vercel 部署已生效，且 API Key 正确。");
+      setAiError("AI 协同引擎暂时不可用。");
     } finally { setIsAiProcessing(false); }
   };
 
@@ -382,13 +375,6 @@ const CaseInputPage: React.FC = () => {
               <Sparkles size={20} className="text-indigo-400 animate-pulse" />
             </div>
             <textarea value={rawNotes} onChange={e => setRawNotes(e.target.value)} placeholder="记录病例特殊细节，AI 将深度挖掘指征与检测结果间的矛盾逻辑..." className="w-full h-32 bg-white/5 border border-white/10 rounded-[32px] p-7 text-xs font-bold text-white outline-none mb-6 focus:border-indigo-400" />
-            
-            {aiError && (
-              <div className="mb-4 p-4 bg-rose-500/10 border border-rose-500/20 rounded-2xl flex items-center gap-3 text-rose-400 text-[10px] font-bold">
-                <AlertCircle size={14} /> {aiError}
-              </div>
-            )}
-
             <button type="button" onClick={runAiSynergy} disabled={isAiProcessing} className="w-full py-6 rounded-2xl bg-indigo-600 text-white font-black text-xs uppercase tracking-widest flex items-center justify-center gap-4 hover:scale-[1.02] transition-all shadow-xl shadow-indigo-500/20">
               {isAiProcessing ? <Loader2 className="animate-spin" size={20}/> : <BrainCircuit size={20}/>}
               启动 AI 协同分析
@@ -408,6 +394,7 @@ const CaseInputPage: React.FC = () => {
                 </div>
 
                 <div className="space-y-6">
+                  {/* 识别到的非典型/矛盾风险点 */}
                   {aiResult.anomalies && aiResult.anomalies.length > 0 && (
                     <div className="bg-rose-500/10 p-6 rounded-3xl border border-rose-500/20">
                       <span className="text-[9px] font-black text-rose-400 uppercase block mb-3 flex items-center gap-2">
